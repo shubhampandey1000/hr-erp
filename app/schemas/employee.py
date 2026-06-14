@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import date
-
+from app.models.enums import RoleEnum
 class EmployeeBase(BaseModel):
     first_name: str
     last_name: str
@@ -9,7 +9,7 @@ class EmployeeBase(BaseModel):
     department: str | None = None
     designation: str | None = None
     date_of_joining: date | None = None 
-
+    role: RoleEnum = RoleEnum.employee
 
 class EmployeeCreate(EmployeeBase):
     password:str    

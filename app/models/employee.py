@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, Boolean
 from app.core.database import Base
-
+from sqlalchemy import Enum
+from app.models.enums import RoleEnum   
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -15,4 +16,5 @@ class Employee(Base):
     date_of_joining = Column(Date)
     is_active = Column(Boolean, default=True)
     password = Column(String, nullable = False)
-    role = Column(String, default="employee")
+    role = Column(Enum(RoleEnum), default=RoleEnum.employee)
+

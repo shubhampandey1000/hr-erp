@@ -4,38 +4,38 @@ from app.core.database import get_db
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
 from app.core.security import hash_password
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_roles
+from app.models.enums import RoleEnum
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
 @router.post("/", response_model = EmployeeResponse)
-def create_employee(employee: EmployeeCreate, db: Session = Depends(get_db), current_user: Employee = Depends(get_current_user)):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+def create_employee(employee: EmployeeCreate, db: Session = Depends(get_db), current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr))):
     
     existing_employee = db.query(Employee).filter(Employee.email == employee.email).first()
 
     if existing_employee:
         raise HTTPException(status_code = 400, detail = "Email Already Registered")
 
-    db_employee = Employee(**employee.model_dump(exclude={"password"}), password=hash_password(employee.password))
+    employee_data = employee.model_dump(exclude={"password"})
+
+    if current_user.role != RoleEnum.admin:
+        employee_data["role"] = RoleEnum.employee
+
+    db_employee = Employee(**employee_data, password=hash_password(employee.password))
     db.add(db_employee)
     db.commit()
     db.refresh(db_employee)
     return db_employee
 
 @router.get("/", response_model = list[EmployeeResponse])
-def get_employees(db: Session = Depends(get_db), current_user: Employee = Depends(get_current_user)):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+def get_employees(db: Session = Depends(get_db), current_user: Employee = Depends(require_roles(RoleEnum.admin))):
+    
     return db.query(Employee).filter(Employee.is_active == True).all()
 
 
 @router.put("/{employee_id}", response_model = EmployeeResponse)
-def update_employee(employee_id: int, update_data: EmployeeCreate, db: Session = Depends(get_db), current_user: Employee = Depends(get_current_user)):
-
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+def update_employee(employee_id: int, update_data: EmployeeCreate, db: Session = Depends(get_db), current_user: Employee = Depends(require_roles(RoleEnum.admin))):
 
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
 
@@ -48,12 +48,12 @@ def update_employee(employee_id: int, update_data: EmployeeCreate, db: Session =
         raise HTTPException(status_code = 400, detail = "Email Already Registered")
     
 
-    update_dict = update_data.model_dump()
+    update_dict = update_data.model_dump(exclude_unset=True)
 
     if "password" in update_dict and update_dict["password"]:
         update_dict["password"] = hash_password(update_dict["password"])
 
-    for key, value in update_dict().items():
+    for key, value in update_dict.items():
         setattr(employee, key, value)
 
     db.commit()
@@ -62,10 +62,7 @@ def update_employee(employee_id: int, update_data: EmployeeCreate, db: Session =
     return employee
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)
-def get_employee(employee_id: int, db: Session = Depends(get_db), current_user: Employee = Depends(get_current_user)):
-
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+def get_employee(employee_id: int, db: Session = Depends(get_db), current_user: Employee = Depends(require_roles(RoleEnum.admin))):
 
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
 
@@ -75,11 +72,8 @@ def get_employee(employee_id: int, db: Session = Depends(get_db), current_user: 
     return employee
 
 @router.delete("/{employee_id}")
-def delete_employee(employee_id: int, db: Session = Depends(get_db), current_user: Employee = Depends(get_current_user)):
-
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-
+def delete_employee(employee_id: int, db: Session = Depends(get_db), current_user: Employee = Depends(require_roles(RoleEnum.admin))):
+    
     employee = db.query(Employee).filter(Employee.id == employee_id).first()
 
     if not employee:
@@ -90,3 +84,20 @@ def delete_employee(employee_id: int, db: Session = Depends(get_db), current_use
     db.commit()
     return {"message": "Employee Deavtivated Successfully"}
 
+@router.put("/{employee_id}/role")
+def update_role(
+    employee_id: int,
+    role: RoleEnum,
+    db: Session = Depends(get_db),
+    current_user: Employee = Depends(require_roles(RoleEnum.admin))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    employee.role = role
+    db.commit()
+    db.refresh(employee)
+
+    return employee
