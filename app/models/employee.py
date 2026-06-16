@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, func, text
+from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, func, text, ForeignKey
 from app.core.database import Base
 from app.models.enums import RoleEnum
+from sqlalchemy.orm import relationship
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -19,4 +20,6 @@ class Employee(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), default=RoleEnum.employee.value, server_default=text("'employee'"), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable = True)
+    department = relationship("Department", back_populates = "employees")
     
