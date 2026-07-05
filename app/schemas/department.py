@@ -24,4 +24,8 @@ class DepartmentResponse(DepartmentBase):
 
     model_config = ConfigDict(from_attributes = True)
 
-    
+class DepartmentBasic(BaseModel):
+    id: int
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)

@@ -11,7 +11,6 @@ class Employee(Base):
     last_name = Column(String(100), nullable=False)
     email = Column(String(150), unique=True, index=True, nullable=False)
     phone = Column(String(20))
-    department = Column(String(100))
     designation = Column(String(100))
     date_of_joining = Column(Date)
     employee_code = Column(String(20), unique=True, index=True, nullable=False)
