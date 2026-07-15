@@ -9,7 +9,7 @@ import random
 import string
 from app.core.security import hash_password
 from app.models.enums import RoleEnum
-
+from app.models.department import Department
 
 class EmployeeService:
 
@@ -42,11 +42,27 @@ class EmployeeService:
             .first()
         )
         if existing_employee:
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=409, detail="Email already registered")
 
         employee_data = employee.model_dump(exclude={"password"})
         if current_user.role != RoleEnum.admin:
             employee_data["role"] = RoleEnum.employee.value
+
+        if employee.department_id is not None:
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == employee.department_id,
+                    Department.is_active == True
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Department not found"
+                )
 
         if employee_data.get("employee_code"):
             duplicate_code = (
@@ -59,7 +75,7 @@ class EmployeeService:
                 )
             if duplicate_code:
                 raise HTTPException(
-                    status_code=400,
+                    status_code=409,
                     detail="Employee code already exists"
                 )
         else:
@@ -118,6 +134,25 @@ class EmployeeService:
 
         update_data = employee.model_dump(exclude_unset=True)
 
+        if (
+            "department_id" in update_data
+            and update_data["department_id"] is not None
+            ):
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == update_data["department_id"],
+                    Department.is_active == True
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Department not found"
+                )
+
         if "email" in update_data:
             duplicate = (
                 db.query(Employee)
@@ -134,6 +169,7 @@ class EmployeeService:
                     status_code=409,
                     detail="Email already registered"
                 )
+            
         if "employee_code" in update_data:
             duplicate = (
                 db.query(Employee)
