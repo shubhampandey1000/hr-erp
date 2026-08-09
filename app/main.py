@@ -15,3 +15,6 @@ def test_db():
     with engine.connect() as connection:
         result = connection.execute(text("SELECT 1"))
         return {"database_connection": "successful"}
+
+for route in app.routes:
+    print(route.path, route.methods)

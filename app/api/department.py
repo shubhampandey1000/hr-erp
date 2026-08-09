@@ -9,7 +9,7 @@ from app.schemas.department import (
 )
 from app.services.department_service import DepartmentService
 from app.core.dependencies import get_current_user
-
+from app.schemas.department import DepartmentEmployeeResponse
 router = APIRouter(
     prefix="/departments",
     tags=["Departments"]
@@ -49,6 +49,20 @@ def update_department(department_id: int, department: DepartmentUpdate, db:Sessi
 @router.delete("/{department_id}")
 def delete_department(department_id: int, db:Session = Depends(get_db), current_user = Depends(require_roles("admin"))):
     return DepartmentService.delete_department(
+        db,
+        department_id
+    )
+
+@router.get(
+    "/{department_id}/employees",
+    response_model=DepartmentEmployeeResponse
+)
+def get_department_employees(
+    department_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    return DepartmentService.get_department_employees(
         db,
         department_id
     )
