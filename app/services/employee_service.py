@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.models.employee import Employee
 from app.schemas.employee import (
     EmployeeCreate,
@@ -93,15 +94,58 @@ class EmployeeService:
 
 
     @staticmethod
-    def get_employees(db: Session):
-        
-        employees = (
+    def get_employees(
+        db: Session,
+        search: str | None = None,
+        department_id: int | None = None,
+        skip: int = 0,
+        limit: int = 10
+        ):
+
+        query = (
             db.query(Employee)
-            .filter(Employee.is_active == True)
-            .all()
+            .filter(Employee.is_active.is_(True))
         )
 
-        return employees
+        if search:
+            search_pattern = f"%{search}%"
+
+            query = query.filter(
+                or_(
+                    Employee.first_name.ilike(search_pattern),
+                    Employee.last_name.ilike(search_pattern),
+                    Employee.email.ilike(search_pattern),
+                    Employee.employee_code.ilike(search_pattern)
+                )
+            )
+        if department_id is not None:
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == department_id,
+                    Department.is_active.is_(True)
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code = 404,
+                    detail = "Department not found"
+                )
+            query = query.filter(
+                Employee.department_id == department_id
+            )
+
+        return (
+            query
+            .order_by(Employee.id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        
+        
 
 
     @staticmethod

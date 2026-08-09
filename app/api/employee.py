@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.employee import Employee
@@ -25,10 +25,20 @@ def create_employee(
 
 @router.get("/", response_model=list[EmployeeResponse])
 def get_employees(
+    search: str | None = Query(None, min_length = 1),
+    department_id: int | None = Query(None, ge = 1),
+    skip: int = Query(0, ge = 0),
+    limit: int = Query(10, ge = 1, le = 100),
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin)),
 ):
-    return EmployeeService.get_employees(db)
+    return EmployeeService.get_employees(
+        db,
+        search,
+        department_id,
+        skip,
+        limit
+        )
 
 
 @router.put("/{employee_id}", response_model=EmployeeResponse)
