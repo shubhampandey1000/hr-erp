@@ -25,19 +25,25 @@ def create_employee(
 
 @router.get("/", response_model=list[EmployeeResponse])
 def get_employees(
-    search: str | None = Query(None, min_length = 1),
-    department_id: int | None = Query(None, ge = 1),
+    search: str | None = None,
+    department_id: int | None = None,
+    role: RoleEnum | None = None,
+    sort_by: str = "id",
+    sort_order: str = "asc",
     skip: int = Query(0, ge = 0),
     limit: int = Query(10, ge = 1, le = 100),
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin)),
 ):
     return EmployeeService.get_employees(
-        db,
-        search,
-        department_id,
-        skip,
-        limit
+        db = db,    
+        search = search,
+        department_id = department_id,
+        role = role,
+        sort_by= sort_by,
+        sort_order=sort_order,
+        skip = skip,
+        limit = limit
         )
 
 

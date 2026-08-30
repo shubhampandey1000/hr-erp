@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, asc, desc
 from app.models.employee import Employee
 from app.schemas.employee import (
     EmployeeCreate,
@@ -98,6 +98,9 @@ class EmployeeService:
         db: Session,
         search: str | None = None,
         department_id: int | None = None,
+        role: RoleEnum | None = None,
+        sort_by: str = "id",
+        sort_order: str = "asc",
         skip: int = 0,
         limit: int = 10
         ):
@@ -118,6 +121,7 @@ class EmployeeService:
                     Employee.employee_code.ilike(search_pattern)
                 )
             )
+
         if department_id is not None:
             department = (
                 db.query(Department)
@@ -128,6 +132,26 @@ class EmployeeService:
                 .first()
             )
 
+            if role is not None:
+                role_value = (
+                    role.value
+                    if isinstance(role, RoleEnum)
+                    else role
+                )
+                query = query.filter(
+                    Employee.role == role.value
+                )
+
+            if department_id is not None:
+                department = (
+                    db.query(Department)
+                    .filter(
+                        Department.id == department_id,
+                        Department.is_active.is_(True)
+                    )
+                    .first()
+                )
+
             if department is None:
                 raise HTTPException(
                     status_code = 404,
@@ -137,9 +161,36 @@ class EmployeeService:
                 Employee.department_id == department_id
             )
 
+        allowed_sort_fields = {
+            "id": Employee.id,
+            "first_name": Employee.first_name,
+            "last_name": Employee.last_name,
+            "email": Employee.email,
+            "employee_code": Employee.employee_code,
+            "date_of_joining": Employee.date_of_joining,
+            "created_at": Employee.created_at,
+        }
+
+        if sort_by not in allowed_sort_fields:
+            raise HTTPException(
+                status_code= 400,
+                detail = f"Invalid Sort Field. Allowed fields: {', '.join(allowed_sort_fields.keys())}"
+            )
+
+        sort_column = allowed_sort_fields[sort_by]
+
+        if sort_order == "asc":
+            query = query.order_by(asc(sort_column))
+        elif sort_order == "desc":
+            query = query.order_by(desc(sort_column))
+        else:
+            raise HTTPException(
+                status_code = 400,
+                detail = "sort_order must be 'asc' or 'desc'"
+            )
+
         return (
             query
-            .order_by(Employee.id)
             .offset(skip)
             .limit(limit)
             .all()
