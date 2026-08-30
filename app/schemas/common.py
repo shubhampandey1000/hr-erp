@@ -26,3 +26,13 @@ class PaginatedResponse(BaseModel, Generic[T]):
     skip: int = Field(..., description="Number of skipped records")
     limit: int = Field(..., description="Max records returned per page")
     items: List[T] = Field(..., description="List of items for the current page")
+
+class ManagerBasic(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    employee_code: str
+    designation: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)

@@ -9,10 +9,64 @@ from app.schemas.employee import (
 import random
 import string
 from app.core.security import hash_password
-from app.models.enums import RoleEnum
+from app.models.enums import RoleEnum, EmploymentStatusEnum
 from app.models.department import Department
+from datetime import date
 
 class EmployeeService:
+
+    @staticmethod
+    def _validate_manager_assignment(
+        db:Session,
+        employee_id: int | None,
+        manager_id: int | None
+    )-> None:
+        """
+        Validates manager assignment:
+        - Manager must exist and be active
+        - An employee cannot report to themselves
+        - Prevents circular reporting chains (A -> B -> A)
+        """
+        if manager_id is None:
+            return 
+
+        if manager_id is not None and manager_id == employee_id:
+            raise HTTPException(
+                status_code=400,
+                detail="An employee cannot be their own manager."
+            )
+
+        manager = (
+            db.query(Employee)
+            .filter(Employee.id == manager_id, Employee.is_active.is_(True))
+            .first()
+        )
+
+        if not manager:
+            raise HTTPException(
+                status_code=404,
+                detail="Assigned manager not found or is inactive."
+            )
+
+        if employee_id is not None:
+            current_ancestor_id = manager.manager_id
+            visited = {employee_id, manager_id}
+
+            while current_ancestor_id is not None:
+                if current_ancestor_id == employee_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Circular reporting hierarchy detected. This assignment is not allowed."
+                    )
+                if current_ancestor_id in visited:
+                    break
+                visited.add(current_ancestor_id)
+                ancestor = (
+                    db.query(Employee.manager_id)
+                    .filter(Employee.id == current_ancestor_id)
+                    .first()
+                )
+                current_ancestor_id = ancestor[0] if ancestor else None
 
     @staticmethod
     def generate_employee_code(db: Session) -> str:
@@ -33,7 +87,7 @@ class EmployeeService:
         )
 
     @staticmethod
-    def create_employee(db: Session, employee: EmployeeCreate, current_user: Employee):
+    def create_employee(db: Session, employee: EmployeeCreate, current_user: Employee)->Employee:
         existing_employee = (
             db.query(Employee)
             .filter(
@@ -46,8 +100,11 @@ class EmployeeService:
             raise HTTPException(status_code=409, detail="Email already registered")
 
         employee_data = employee.model_dump(exclude={"password"})
-        if current_user.role != RoleEnum.admin:
+
+        if current_user.role != RoleEnum.admin.value and current_user.role != RoleEnum.admin:
             employee_data["role"] = RoleEnum.employee.value
+        elif isinstance(employee_data.get("role"), RoleEnum):
+            employee_data["role"] = employee_data["role"].value
 
         if employee.department_id is not None:
             department = (
@@ -65,6 +122,9 @@ class EmployeeService:
                     detail="Department not found"
                 )
 
+        if employee.manager_id is not None:
+            EmployeeService._validate_manager_assignment(db, employee_id=None, manager_id=employee.manager_id)
+            
         if employee_data.get("employee_code"):
             duplicate_code = (
                 db.query(Employee)
@@ -99,6 +159,8 @@ class EmployeeService:
         search: str | None = None,
         department_id: int | None = None,
         role: RoleEnum | None = None,
+        manager_id: int | None = None,
+        employment_status: EmploymentStatusEnum | None = None,
         sort_by: str = "id",
         sort_order: str = "asc",
         skip: int = 0,
@@ -107,7 +169,9 @@ class EmployeeService:
 
         query = (
             db.query(Employee)
-            .options(joinedload(Employee.department))
+            .options(joinedload(Employee.department),
+                     joinedload(Employee.manager)
+            )
             .filter(Employee.is_active.is_(True))
         )
 
@@ -143,8 +207,14 @@ class EmployeeService:
         if role is not None:
             role_value = role.value if isinstance(role, RoleEnum) else role
             query = query.filter(
-                Employee.role == role.value
+                Employee.role == role_value
             )
+        if manager_id is not None:
+            query = query.filter(Employee.manager_id == manager_id)
+
+        if employment_status is not None:
+            status_value = employment_status.value if isinstance(employment_status, EmploymentStatusEnum) else employment_status
+            query = query.filter(Employee.employment_status == status_value)
  
 
         allowed_sort_fields = {
@@ -154,6 +224,7 @@ class EmployeeService:
             "email": Employee.email,
             "employee_code": Employee.employee_code,
             "date_of_joining": Employee.date_of_joining,
+            "employment_status": Employee.employment_status,
             "created_at": Employee.created_at,
         }
 
@@ -193,7 +264,8 @@ class EmployeeService:
         
         employee = (
             db.query(Employee)
-            .options(joinedload(Employee.department))
+            .options(joinedload(Employee.department),
+                     joinedload(Employee.manager))
             .filter(
                 Employee.id == employee_id,
                 Employee.is_active == True
@@ -210,7 +282,7 @@ class EmployeeService:
         return employee
 
     @staticmethod
-    def update_employee(db:Session, employee_id: int, employee: EmployeeUpdate):
+    def update_employee(db:Session, employee_id: int, employee: EmployeeUpdate)-> Employee:
         
         existing_employee = EmployeeService.get_employee_by_id(
             db,
@@ -231,12 +303,17 @@ class EmployeeService:
                 )
                 .first()
             )
-
             if department is None:
                 raise HTTPException(
                     status_code=404,
                     detail="Department not found"
                 )
+        if "manager_id" in update_data:
+            EmployeeService._validate_manager_assignment(
+                db,
+                employee_id=employee_id,
+                manager_id=update_data["manager_id"]
+            )
 
         if "email" in update_data:
             duplicate = (
@@ -248,7 +325,6 @@ class EmployeeService:
                 )
                 .first()
             )
-
             if duplicate:
                 raise HTTPException(
                     status_code=409,
@@ -265,7 +341,6 @@ class EmployeeService:
                 )
                 .first()
             )
-
             if duplicate:
                 raise HTTPException(
                     status_code=409,
@@ -283,6 +358,16 @@ class EmployeeService:
         ):
             update_data["role"] = update_data["role"].value
 
+        if "employment_status" in update_data:
+            status_val = update_data["employment_status"]
+            if isinstance(status_val, EmploymentStatusEnum):
+                update_data["employment_status"] = status_val.value
+
+            # Auto-set termination date if marked terminated without explicit date
+            if update_data["employment_status"] == EmploymentStatusEnum.terminated.value:
+                if not update_data.get("termination_date") and not existing_employee.termination_date:
+                    update_data["termination_date"] = date.today()
+
         for key, value in update_data.items():
             setattr(existing_employee, key, value)
 
@@ -293,7 +378,7 @@ class EmployeeService:
     
 
     @staticmethod
-    def delete_employee(db: Session, employee_id: int):
+    def delete_employee(db: Session, employee_id: int)-> dict:
 
         employee = EmployeeService.get_employee_by_id(
             db,
@@ -301,6 +386,9 @@ class EmployeeService:
         )
 
         employee.is_active = False
+        employee.employment_status = EmploymentStatusEnum.terminated.value
+        if not employee.termination_date:
+            employee.termination_date = date.today()
 
         db.commit()
 
@@ -314,7 +402,7 @@ class EmployeeService:
         db: Session,
         employee_id: int,
         role: RoleEnum
-    ):
+    )-> Employee:
         employee = EmployeeService.get_employee_by_id(
             db,
             employee_id
@@ -329,4 +417,75 @@ class EmployeeService:
         db.commit()
         db.refresh(employee)
 
+        return employee
+
+    @staticmethod
+    def get_direct_reports(db: Session, employee_id: int) -> list[Employee]:
+        # Ensure manager exists and is active
+        EmployeeService.get_employee_by_id(db, employee_id)
+        
+        return (
+            db.query(Employee)
+            .filter(
+                Employee.manager_id == employee_id,
+                Employee.is_active.is_(True)
+            )
+            .order_by(Employee.first_name.asc())
+            .all()
+        )
+
+    @staticmethod
+    def reactivate_employee(db: Session, employee_id: int) -> Employee:
+        # Query without is_active filter to find deactivated records
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        
+        if not employee:
+            raise HTTPException(
+                status_code=404,
+                detail="Employee not found"
+            )
+            
+        if employee.is_active:
+            raise HTTPException(
+                status_code=400,
+                detail="Employee is already active"
+            )
+
+        # Check for unique index conflicts before reactivating
+        email_conflict = (
+            db.query(Employee)
+            .filter(
+                Employee.email == employee.email,
+                Employee.is_active.is_(True),
+                Employee.id != employee_id
+            )
+            .first()
+        )
+        if email_conflict:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot reactivate: email is currently in use by another active employee"
+            )
+
+        code_conflict = (
+            db.query(Employee)
+            .filter(
+                Employee.employee_code == employee.employee_code,
+                Employee.is_active.is_(True),
+                Employee.id != employee_id
+            )
+            .first()
+        )
+        if code_conflict:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot reactivate: employee code is currently in use by another active employee"
+            )
+
+        employee.is_active = True
+        employee.employment_status = EmploymentStatusEnum.active.value
+        employee.termination_date = None
+
+        db.commit()
+        db.refresh(employee)
         return employee
