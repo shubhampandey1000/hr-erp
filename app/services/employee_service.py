@@ -1,0 +1,332 @@
+from fastapi import HTTPException
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, asc, desc
+from app.models.employee import Employee
+from app.schemas.employee import (
+    EmployeeCreate,
+    EmployeeUpdate 
+)
+import random
+import string
+from app.core.security import hash_password
+from app.models.enums import RoleEnum
+from app.models.department import Department
+
+class EmployeeService:
+
+    @staticmethod
+    def generate_employee_code(db: Session) -> str:
+        for _ in range(10):
+            code = "EMP" + "".join(random.choices(string.digits, k=8))
+
+            existing = (
+                db.query(Employee)
+                .filter(Employee.employee_code == code)
+                .first()
+            )
+
+            if not existing:
+                return code
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to generate unique employee code"
+        )
+
+    @staticmethod
+    def create_employee(db: Session, employee: EmployeeCreate, current_user: Employee):
+        existing_employee = (
+            db.query(Employee)
+            .filter(
+                Employee.email == employee.email,
+                Employee.is_active == True
+                )
+            .first()
+        )
+        if existing_employee:
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        employee_data = employee.model_dump(exclude={"password"})
+        if current_user.role != RoleEnum.admin:
+            employee_data["role"] = RoleEnum.employee.value
+
+        if employee.department_id is not None:
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == employee.department_id,
+                    Department.is_active == True
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Department not found"
+                )
+
+        if employee_data.get("employee_code"):
+            duplicate_code = (
+                db.query(Employee)
+                .filter(
+                    Employee.employee_code == employee_data["employee_code"],
+                    Employee.is_active == True
+                    )
+                .first()
+                )
+            if duplicate_code:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Employee code already exists"
+                )
+        else:
+            employee_data["employee_code"] = EmployeeService.generate_employee_code(db)
+
+        employee_data["hashed_password"] = hash_password(employee.password)
+        if isinstance(employee_data.get("role"), RoleEnum):
+            employee_data["role"] = employee_data["role"].value
+
+        db_employee = Employee(**employee_data)
+        db.add(db_employee)
+        db.commit()
+        db.refresh(db_employee)
+        return db_employee
+
+
+    @staticmethod
+    def get_employees(
+        db: Session,
+        search: str | None = None,
+        department_id: int | None = None,
+        role: RoleEnum | None = None,
+        sort_by: str = "id",
+        sort_order: str = "asc",
+        skip: int = 0,
+        limit: int = 10
+        ) -> dict:
+
+        query = (
+            db.query(Employee)
+            .options(joinedload(Employee.department))
+            .filter(Employee.is_active.is_(True))
+        )
+
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Employee.first_name.ilike(search_pattern),
+                    Employee.last_name.ilike(search_pattern),
+                    Employee.email.ilike(search_pattern),
+                    Employee.employee_code.ilike(search_pattern)
+                )
+            )
+
+        if department_id is not None:
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == department_id,
+                    Department.is_active.is_(True)
+                )
+                .first()
+            )
+            if not department:
+                raise HTTPException(
+                    status_code= 404,
+                    detail="Department not found"
+                )
+            query = query.filter(
+                            Employee.department_id == department_id
+                        )
+
+        if role is not None:
+            role_value = role.value if isinstance(role, RoleEnum) else role
+            query = query.filter(
+                Employee.role == role.value
+            )
+ 
+
+        allowed_sort_fields = {
+            "id": Employee.id,
+            "first_name": Employee.first_name,
+            "last_name": Employee.last_name,
+            "email": Employee.email,
+            "employee_code": Employee.employee_code,
+            "date_of_joining": Employee.date_of_joining,
+            "created_at": Employee.created_at,
+        }
+
+        if sort_by not in allowed_sort_fields:
+            raise HTTPException(
+                status_code= 400,
+                detail = f"Invalid Sort Field. Allowed fields: {', '.join(allowed_sort_fields.keys())}"
+            )
+
+        sort_column = allowed_sort_fields[sort_by]
+
+        if sort_order == "asc":
+            query = query.order_by(asc(sort_column))
+        elif sort_order == "desc":
+            query = query.order_by(desc(sort_column))
+        else:
+            raise HTTPException(
+                status_code = 400,
+                detail = "sort_order must be 'asc' or 'desc'"
+            )
+
+        total = query.count()
+        items = query.offset(skip).limit(limit).all()
+
+        return {
+           "total": total,
+            "skip": skip,
+            "limit": limit,
+            "items": items
+        }
+        
+        
+
+
+    @staticmethod
+    def get_employee_by_id(db:Session, employee_id: int) -> Employee:
+        
+        employee = (
+            db.query(Employee)
+            .options(joinedload(Employee.department))
+            .filter(
+                Employee.id == employee_id,
+                Employee.is_active == True
+            )
+            .first()
+        )
+
+        if employee is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Employee not found"
+            )
+        
+        return employee
+
+    @staticmethod
+    def update_employee(db:Session, employee_id: int, employee: EmployeeUpdate):
+        
+        existing_employee = EmployeeService.get_employee_by_id(
+            db,
+            employee_id
+        )
+
+        update_data = employee.model_dump(exclude_unset=True)
+
+        if (
+            "department_id" in update_data
+            and update_data["department_id"] is not None
+            ):
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == update_data["department_id"],
+                    Department.is_active == True
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Department not found"
+                )
+
+        if "email" in update_data:
+            duplicate = (
+                db.query(Employee)
+                .filter(
+                    Employee.email == update_data["email"],
+                    Employee.id != employee_id,
+                    Employee.is_active == True
+                )
+                .first()
+            )
+
+            if duplicate:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Email already registered"
+                )
+            
+        if "employee_code" in update_data:
+            duplicate = (
+                db.query(Employee)
+                .filter(
+                    Employee.employee_code == update_data["employee_code"],
+                    Employee.id != employee_id,
+                    Employee.is_active == True
+                )
+                .first()
+            )
+
+            if duplicate:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Employee Code Already Exists"
+                )
+            
+        if "password" in update_data:
+            update_data["hashed_password"] = hash_password(
+                update_data.pop("password")
+            )
+
+        if(
+            "role" in update_data
+            and isinstance(update_data["role"], RoleEnum)
+        ):
+            update_data["role"] = update_data["role"].value
+
+        for key, value in update_data.items():
+            setattr(existing_employee, key, value)
+
+        db.commit()
+        db.refresh(existing_employee)
+
+        return existing_employee    
+    
+
+    @staticmethod
+    def delete_employee(db: Session, employee_id: int):
+
+        employee = EmployeeService.get_employee_by_id(
+            db,
+            employee_id
+        )
+
+        employee.is_active = False
+
+        db.commit()
+
+        return {
+            "message": "Employee deactivated successfully"
+        }
+    
+
+    @staticmethod
+    def update_role(
+        db: Session,
+        employee_id: int,
+        role: RoleEnum
+    ):
+        employee = EmployeeService.get_employee_by_id(
+            db,
+            employee_id
+        )
+
+        employee.role = (
+            role.value
+            if isinstance(role, RoleEnum)
+            else role
+        )
+
+        db.commit()
+        db.refresh(employee)
+
+        return employee

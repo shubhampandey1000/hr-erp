@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-
+from app.schemas.common import EmployeeBasic, DepartmentBasic
 class DepartmentBase(BaseModel):
 
     name: str
@@ -13,15 +13,22 @@ class DepartmentCreate(DepartmentBase):
 class DepartmentUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    is_active: str | None = None
 
+    model_config = ConfigDict(extra="forbid")
 
 class DepartmentResponse(DepartmentBase):
     id: int
-    is_active = bool
-    created_at = datetime
-    updated_at = datetime
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
-    model_config = ConfigDict(form_attribute = True)
+    model_config = ConfigDict(from_attributes = True)
+
+
+
+class DepartmentEmployeeResponse(DepartmentBasic):
+    employees: list[EmployeeBasic]
+
+    model_config = ConfigDict(from_attributes=True)
 
     
