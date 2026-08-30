@@ -1,5 +1,6 @@
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, asc, desc
 from app.models.employee import Employee
 from app.schemas.employee import (
     EmployeeCreate,
@@ -9,7 +10,7 @@ import random
 import string
 from app.core.security import hash_password
 from app.models.enums import RoleEnum
-
+from app.models.department import Department
 
 class EmployeeService:
 
@@ -42,11 +43,27 @@ class EmployeeService:
             .first()
         )
         if existing_employee:
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=409, detail="Email already registered")
 
         employee_data = employee.model_dump(exclude={"password"})
         if current_user.role != RoleEnum.admin:
             employee_data["role"] = RoleEnum.employee.value
+
+        if employee.department_id is not None:
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == employee.department_id,
+                    Department.is_active == True
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Department not found"
+                )
 
         if employee_data.get("employee_code"):
             duplicate_code = (
@@ -59,7 +76,7 @@ class EmployeeService:
                 )
             if duplicate_code:
                 raise HTTPException(
-                    status_code=400,
+                    status_code=409,
                     detail="Employee code already exists"
                 )
         else:
@@ -77,22 +94,106 @@ class EmployeeService:
 
 
     @staticmethod
-    def get_employees(db: Session):
-        
-        employees = (
+    def get_employees(
+        db: Session,
+        search: str | None = None,
+        department_id: int | None = None,
+        role: RoleEnum | None = None,
+        sort_by: str = "id",
+        sort_order: str = "asc",
+        skip: int = 0,
+        limit: int = 10
+        ) -> dict:
+
+        query = (
             db.query(Employee)
-            .filter(Employee.is_active == True)
-            .all()
+            .options(joinedload(Employee.department))
+            .filter(Employee.is_active.is_(True))
         )
 
-        return employees
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Employee.first_name.ilike(search_pattern),
+                    Employee.last_name.ilike(search_pattern),
+                    Employee.email.ilike(search_pattern),
+                    Employee.employee_code.ilike(search_pattern)
+                )
+            )
+
+        if department_id is not None:
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == department_id,
+                    Department.is_active.is_(True)
+                )
+                .first()
+            )
+            if not department:
+                raise HTTPException(
+                    status_code= 404,
+                    detail="Department not found"
+                )
+            query = query.filter(
+                            Employee.department_id == department_id
+                        )
+
+        if role is not None:
+            role_value = role.value if isinstance(role, RoleEnum) else role
+            query = query.filter(
+                Employee.role == role.value
+            )
+ 
+
+        allowed_sort_fields = {
+            "id": Employee.id,
+            "first_name": Employee.first_name,
+            "last_name": Employee.last_name,
+            "email": Employee.email,
+            "employee_code": Employee.employee_code,
+            "date_of_joining": Employee.date_of_joining,
+            "created_at": Employee.created_at,
+        }
+
+        if sort_by not in allowed_sort_fields:
+            raise HTTPException(
+                status_code= 400,
+                detail = f"Invalid Sort Field. Allowed fields: {', '.join(allowed_sort_fields.keys())}"
+            )
+
+        sort_column = allowed_sort_fields[sort_by]
+
+        if sort_order == "asc":
+            query = query.order_by(asc(sort_column))
+        elif sort_order == "desc":
+            query = query.order_by(desc(sort_column))
+        else:
+            raise HTTPException(
+                status_code = 400,
+                detail = "sort_order must be 'asc' or 'desc'"
+            )
+
+        total = query.count()
+        items = query.offset(skip).limit(limit).all()
+
+        return {
+           "total": total,
+            "skip": skip,
+            "limit": limit,
+            "items": items
+        }
+        
+        
 
 
     @staticmethod
-    def get_employee_by_id(db:Session, employee_id: int):
+    def get_employee_by_id(db:Session, employee_id: int) -> Employee:
         
         employee = (
             db.query(Employee)
+            .options(joinedload(Employee.department))
             .filter(
                 Employee.id == employee_id,
                 Employee.is_active == True
@@ -118,6 +219,25 @@ class EmployeeService:
 
         update_data = employee.model_dump(exclude_unset=True)
 
+        if (
+            "department_id" in update_data
+            and update_data["department_id"] is not None
+            ):
+            department = (
+                db.query(Department)
+                .filter(
+                    Department.id == update_data["department_id"],
+                    Department.is_active == True
+                )
+                .first()
+            )
+
+            if department is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Department not found"
+                )
+
         if "email" in update_data:
             duplicate = (
                 db.query(Employee)
@@ -134,6 +254,7 @@ class EmployeeService:
                     status_code=409,
                     detail="Email already registered"
                 )
+            
         if "employee_code" in update_data:
             duplicate = (
                 db.query(Employee)

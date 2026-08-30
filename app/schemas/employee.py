@@ -2,7 +2,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, EmailStr
 from pydantic import ConfigDict
 from app.models.enums import RoleEnum
-from app.schemas.department import DepartmentBasic
+from app.schemas.common import DepartmentBasic
 
 class EmployeeBase(BaseModel):
     first_name: str
@@ -39,4 +39,9 @@ class EmployeeResponse(EmployeeBase):
     department: DepartmentBasic | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+
+
+    
         

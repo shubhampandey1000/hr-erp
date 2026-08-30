@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from app.models.department import Department
+from app.models.employee import Employee
 from app.schemas.department import (
     DepartmentCreate,
     DepartmentUpdate
@@ -113,4 +114,27 @@ class DepartmentService:
             "message": "Department deleted successfully"
         }
 
-        
+    @staticmethod
+    def get_department_employees(
+        db: Session,
+        department_id: int
+    ):
+        department = DepartmentService.get_department_by_id(
+            db,
+            department_id
+        )
+
+        employees = (
+            db.query(Employee)
+            .filter(
+                Employee.department_id == department_id,
+                Employee.is_active.is_(True)
+            )
+            .all()
+        )
+
+        return {
+            "id": department.id,
+            "name": department.name,
+            "employees": employees
+        }
