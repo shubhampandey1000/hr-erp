@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, asc, desc
 from app.models.employee import Employee
 from app.schemas.employee import (
@@ -103,16 +103,16 @@ class EmployeeService:
         sort_order: str = "asc",
         skip: int = 0,
         limit: int = 10
-        ):
+        ) -> dict:
 
         query = (
             db.query(Employee)
+            .options(joinedload(Employee.department))
             .filter(Employee.is_active.is_(True))
         )
 
         if search:
             search_pattern = f"%{search}%"
-
             query = query.filter(
                 or_(
                     Employee.first_name.ilike(search_pattern),
@@ -131,35 +131,21 @@ class EmployeeService:
                 )
                 .first()
             )
-
-            if role is not None:
-                role_value = (
-                    role.value
-                    if isinstance(role, RoleEnum)
-                    else role
-                )
-                query = query.filter(
-                    Employee.role == role.value
-                )
-
-            if department_id is not None:
-                department = (
-                    db.query(Department)
-                    .filter(
-                        Department.id == department_id,
-                        Department.is_active.is_(True)
-                    )
-                    .first()
-                )
-
-            if department is None:
+            if not department:
                 raise HTTPException(
-                    status_code = 404,
-                    detail = "Department not found"
+                    status_code= 404,
+                    detail="Department not found"
                 )
             query = query.filter(
-                Employee.department_id == department_id
+                            Employee.department_id == department_id
+                        )
+
+        if role is not None:
+            role_value = role.value if isinstance(role, RoleEnum) else role
+            query = query.filter(
+                Employee.role == role.value
             )
+ 
 
         allowed_sort_fields = {
             "id": Employee.id,
@@ -189,21 +175,25 @@ class EmployeeService:
                 detail = "sort_order must be 'asc' or 'desc'"
             )
 
-        return (
-            query
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
+        total = query.count()
+        items = query.offset(skip).limit(limit).all()
+
+        return {
+           "total": total,
+            "skip": skip,
+            "limit": limit,
+            "items": items
+        }
         
         
 
 
     @staticmethod
-    def get_employee_by_id(db:Session, employee_id: int):
+    def get_employee_by_id(db:Session, employee_id: int) -> Employee:
         
         employee = (
             db.query(Employee)
+            .options(joinedload(Employee.department))
             .filter(
                 Employee.id == employee_id,
                 Employee.is_active == True
