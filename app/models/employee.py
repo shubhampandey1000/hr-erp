@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, func, text, ForeignKey, Index
 from app.core.database import Base
 from app.models.enums import RoleEnum, EmploymentStatusEnum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, remote
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -27,13 +27,17 @@ class Employee(Base):
     department = relationship("Department", back_populates = "employees")
 
     manager_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
-    manager = relationship("Employee",
-                           remote_side=[id],
-                           back_populates="direct_reports"
-                           )
-    direct_reports = relationship("Employee",
-                                  back_populates="manager",
-                                  primaryjoin="and_(Employee.id == Employee.manager_id, Employee.is_active==True)")
+    manager_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    manager = relationship(
+        "Employee",
+        remote_side=[id],
+        back_populates="direct_reports"
+    )
+    direct_reports = relationship(
+        "Employee",
+        back_populates="manager",
+        primaryjoin="and_(Employee.id == remote(Employee.manager_id), Employee.is_active == True)"
+    )
 
 
     __table_args__ = (

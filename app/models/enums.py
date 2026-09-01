@@ -10,4 +10,10 @@ class EmploymentStatusEnum(str, enum.Enum):
     active = "active"
     on_leave = "on_leave"
     terminated = "terminated"
+
+class LeaveStatusEnum(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    cancelled = "cancelled"
     

@@ -32,7 +32,7 @@ def get_employees(
     role: RoleEnum | None = None,
     employment_status: EmploymentStatusEnum | None = None,
     sort_by: str = Query("id", description="Field to sort by"),
-    sort_order: str = Query("asc", regex="^(asc|desc)$"),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$"),
     skip: int = Query(0, ge = 0),
     limit: int = Query(10, ge = 1, le = 100),
     db: Session = Depends(get_db),
