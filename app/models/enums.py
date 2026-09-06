@@ -16,4 +16,19 @@ class LeaveStatusEnum(str, enum.Enum):
     approved = "approved"
     rejected = "rejected"
     cancelled = "cancelled"
+
+class AttendanceStatusEnum(str, enum.Enum):
+    present = "present"
+    half_day = "half_day"
+    absent = "absent"
+    on_leave = "on_leave"
+    weekend_work = "weekend_work"
+
+class CompOffStatusEnum(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+    
+
     
