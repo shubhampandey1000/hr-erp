@@ -9,7 +9,7 @@ from app.models.employee import Employee
 from app.models.leave import LeaveRequest, LeaveType, LeaveBalance
 from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, RoleEnum, CompOffStatusEnum
 from app.schemas.attendance import ClockInRequest, ClockOutRequest, AttendanceManualCreate
-
+from sqlalchemy.exc import IntegrityError
 
 class AttendanceService:
 
@@ -17,7 +17,7 @@ class AttendanceService:
     def _calculate_work_metrics(clock_in: datetime, clock_out: datetime, work_date: date) -> tuple[Decimal, Decimal, str]:
         duration_seconds = (clock_out - clock_in).total_seconds()
         
-        # Round the divided hours to 2 decimal places, then convert string to Decimal
+        # Round to 2 decimal places and cast via string to Decimal safely
         total_hours = Decimal(str(round(duration_seconds / 3600.0, 2)))
         is_weekend = work_date.weekday() in [5, 6]
 
@@ -33,7 +33,7 @@ class AttendanceService:
                 overtime_hours = Decimal("0.0")
             return total_hours, overtime_hours, status_val
 
-        # Standard work day: 8 hours
+        # Standard workday: 8 hours
         if total_hours >= Decimal("8.0"):
             status_val = AttendanceStatusEnum.present.value
             overtime_hours = max(Decimal("0.0"), total_hours - Decimal("8.0"))
@@ -47,10 +47,9 @@ class AttendanceService:
         return total_hours, overtime_hours, status_val
 
     @staticmethod
-    def clock_in(db:Session, employee_id: int, data: ClockInRequest) -> Attendance:
-        today = date.today()
-        now = datetime.now()
-
+    def clock_in(db: Session, employee_id: int, data: ClockInRequest) -> Attendance:
+        now = datetime.now(timezone.utc)
+        today = now.date()
 
         # 1. Check if on approved leave
         approved_leave = (
@@ -98,7 +97,19 @@ class AttendanceService:
         )
 
         db.add(record)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if "uq_employee_work_date" in str(exc.orig).lower():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Attendance record already exists for today."
+                )
+            raise HTTPException(
+                status_code=400,
+                detail="Could not record attendance due to a database constraint violation."
+            )
 
         return (
             db.query(Attendance)
@@ -109,8 +120,8 @@ class AttendanceService:
 
     @staticmethod
     def clock_out(db: Session, employee_id: int, data: ClockOutRequest) -> Attendance:
-        today = date.today()
         now = datetime.now(timezone.utc)
+        today = now.date()
 
         record = (
             db.query(Attendance)
@@ -150,10 +161,9 @@ class AttendanceService:
             .first()
         )
 
-
     @staticmethod
     def get_attendance(
-        db:Session,
+        db: Session,
         current_user: Employee,
         work_date: date | None = None,
         employee_id: int | None = None,
@@ -163,7 +173,6 @@ class AttendanceService:
         query = db.query(Attendance).options(joinedload(Attendance.employee))
 
         # Authorization filtering
-
         if current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]:
             if employee_id:
                 query = query.filter(Attendance.employee_id == employee_id)
@@ -188,7 +197,34 @@ class AttendanceService:
         return {"total": total, "skip": skip, "limit": limit, "items": items}
 
     @staticmethod
-    def get_monthly_summary(db: Session, employee_id: int, year: int, month: int) -> dict:
+    def get_monthly_summary(
+        db: Session,
+        current_user: Employee,
+        employee_id: int,
+        year: int,
+        month: int
+    ) -> dict:
+        # Hierarchical scope validation
+        is_admin_or_hr = current_user.role in [
+            RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr
+        ]
+        is_manager = current_user.role in [RoleEnum.manager.value, RoleEnum.manager]
+
+        if not is_admin_or_hr:
+            if is_manager:
+                direct_report_ids = [emp.id for emp in current_user.direct_reports]
+                if employee_id != current_user.id and employee_id not in direct_report_ids:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Access denied: You can only view summaries for yourself and direct reports."
+                    )
+            else:
+                if employee_id != current_user.id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Access denied: You can only view your own attendance summary."
+                    )
+
         records = (
             db.query(Attendance)
             .filter(
@@ -218,18 +254,17 @@ class AttendanceService:
             "total_overtime_hours": overtime_hours,
         }
 
-
     @staticmethod
     def request_comp_off(db: Session, employee_id: int, worked_date: date, reason: str) -> CompOffRequest:
         if worked_date.weekday() not in [5, 6]:
             raise HTTPException(
-                status_code=404,
+                status_code=400,
                 detail="Comp Off can only be claimed for work performed on weekends (Saturday/Sunday)."
             )
 
-        if worked_date > date.today():
+        if worked_date > datetime.now(timezone.utc).date():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail="Cannot request Comp Off for future dates."
             )
 
@@ -273,21 +308,81 @@ class AttendanceService:
             status=CompOffStatusEnum.pending.value,
         )
         db.add(req)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if "uq_employee_worked_date_compoff" in str(exc.orig).lower():
+                raise HTTPException(
+                    status_code=409,
+                    detail="A Comp Off request has already been submitted for this date."
+                )
+            raise HTTPException(
+                status_code=400,
+                detail="Could not create the Comp Off request due to a database constraint violation."
+            )
         db.refresh(req)
         return req
 
+    @staticmethod
+    def get_comp_off_requests(
+        db: Session,
+        current_user: Employee,
+        status_filter: CompOffStatusEnum | None = None,
+        skip: int = 0,
+        limit: int = 10,
+    ) -> dict:
+        query = (
+            db.query(CompOffRequest)
+            .options(
+                joinedload(CompOffRequest.employee),
+                joinedload(CompOffRequest.approver)
+            )
+        )
+
+        # Scoped access: Admin/HR -> All, Manager -> Self + Direct Reports, Employee -> Self
+        if current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]:
+            pass
+        elif current_user.role in [RoleEnum.manager.value, RoleEnum.manager]:
+            direct_report_ids = [emp.id for emp in current_user.direct_reports]
+            query = query.filter(
+                or_(
+                    CompOffRequest.employee_id == current_user.id,
+                    CompOffRequest.employee_id.in_(direct_report_ids)
+                )
+            )
+        else:
+            query = query.filter(CompOffRequest.employee_id == current_user.id)
+
+        if status_filter:
+            val = status_filter.value if isinstance(status_filter, CompOffStatusEnum) else status_filter
+            query = query.filter(CompOffRequest.status == val)
+
+        total = query.count()
+        items = query.order_by(CompOffRequest.created_at.desc()).offset(skip).limit(limit).all()
+
+        return {"total": total, "skip": skip, "limit": limit, "items": items}
 
     @staticmethod
-    def approve_comp_off(db: Session, request_id: int, approver: Employee, action_reason: str | None) -> CompOffRequest:
+    def approve_comp_off(
+        db: Session,
+        request_id: int,
+        approver: Employee,
+        action_reason: str | None
+    ) -> CompOffRequest:
+        # Row-level lock on the request itself to eliminate race conditions
         req = (
             db.query(CompOffRequest)
             .options(joinedload(CompOffRequest.employee))
             .filter(CompOffRequest.id == request_id)
+            .with_for_update()
             .first()
         )
         if not req:
-            raise HTTPException(status_code=404, detail="Comp Off request not found.")
+            raise HTTPException(
+                status_code=404,
+                detail="Comp Off request not found."
+            )
 
         if req.status != CompOffStatusEnum.pending.value:
             raise HTTPException(
@@ -295,7 +390,9 @@ class AttendanceService:
                 detail=f"Cannot approve request with status '{req.status}'."
             )
 
-        is_admin_or_hr = approver.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
+        is_admin_or_hr = approver.role in [
+            RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr
+        ]
         is_direct_manager = req.employee.manager_id == approver.id
 
         if not (is_admin_or_hr or is_direct_manager):
@@ -303,6 +400,9 @@ class AttendanceService:
                 status_code=403,
                 detail="You do not have permission to approve this Comp Off request."
             )
+
+        # Serialize balance creation and updates for this employee.
+        db.query(Employee).filter(Employee.id == req.employee_id).with_for_update().one()
 
         # Find or create 'Compensatory Off' leave type
         comp_off_type = (
@@ -312,7 +412,6 @@ class AttendanceService:
         )
 
         if not comp_off_type:
-            # Auto-provision type if not created yet
             comp_off_type = LeaveType(
                 name="Compensatory Off",
                 description="Earned compensatory off from weekend work",
@@ -321,7 +420,7 @@ class AttendanceService:
             db.add(comp_off_type)
             db.flush()
 
-        # Credit balance for the worked year
+        # Credit balance for the worked year with row lock
         year = req.worked_date.year
         balance = (
             db.query(LeaveBalance)
@@ -332,15 +431,15 @@ class AttendanceService:
             )
             .with_for_update()
             .first()
-            )
+        )
 
         if not balance:
             balance = LeaveBalance(
-                employee_id = req.employee_id,
-                leave_type_id = comp_off_type.id,
-                year = year,
-                allocated_days = req.credit_days,
-                used_days = Decimal("0.0")
+                employee_id=req.employee_id,
+                leave_type_id=comp_off_type.id,
+                year=year,
+                allocated_days=req.credit_days,
+                used_days=Decimal("0.0"),
             )
             db.add(balance)
         else:
@@ -349,7 +448,49 @@ class AttendanceService:
         req.status = CompOffStatusEnum.approved.value
         req.approver_id = approver.id
         req.action_reason = action_reason
-        req.action_taken_at = datetime.now()
+        req.action_taken_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(req)
+        return req
+
+    @staticmethod
+    def reject_comp_off(db: Session, request_id: int, approver: Employee, action_reason: str | None) -> CompOffRequest:
+        req = (
+            db.query(CompOffRequest)
+            .options(
+                joinedload(CompOffRequest.employee),
+                joinedload(CompOffRequest.approver)
+            )
+            .filter(CompOffRequest.id == request_id)
+            .with_for_update()
+            .first()
+        )
+        if not req:
+            raise HTTPException(
+                status_code=404,
+                detail="Comp Off request not found."
+            )
+
+        if req.status != CompOffStatusEnum.pending.value:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot reject request with status '{req.status}'."
+            )
+
+        is_admin_or_hr = approver.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
+        is_direct_manager = req.employee.manager_id == approver.id
+
+        if not (is_admin_or_hr or is_direct_manager):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to reject this Comp Off request."
+            )
+
+        req.status = CompOffStatusEnum.rejected.value
+        req.approver_id = approver.id
+        req.action_reason = action_reason
+        req.action_taken_at = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(req)

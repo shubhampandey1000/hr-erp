@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime, timezone
 from decimal import Decimal
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -17,7 +17,7 @@ def process_daily_attendance_job():
     db = SessionLocal()
 
     try:
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
 
         # Rule: Skip weekend auto-absentee marking (Saturday=5, Sunday=6)
         if today.weekday() in [5, 6]:

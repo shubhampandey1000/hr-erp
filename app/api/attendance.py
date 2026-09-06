@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -57,12 +57,19 @@ def list_attendance(
 @router.get("/summary/monthly", response_model=MonthlyAttendanceSummary)
 def get_monthly_summary(
     employee_id: int,
-    year: int = Query(default=2026),
-    month: int = Query(default=9, ge=1, le=12),
+    year: int | None = Query(default=None),
+    month: int | None = Query(default=None, ge=1, le=12),
     db: Session = Depends(get_db),
-    current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr, RoleEnum.manager)),
+    current_user: Employee = Depends(get_current_user),
 ):
-    return AttendanceService.get_monthly_summary(db, employee_id, year, month)
+    current_date = datetime.now(timezone.utc).date()
+    return AttendanceService.get_monthly_summary(
+        db=db,
+        current_user=current_user,
+        employee_id=employee_id,
+        year=year if year is not None else current_date.year,
+        month=month if month is not None else current_date.month,
+    )
 
 
 @router.post("/comp-off/request", response_model=CompOffResponse)
