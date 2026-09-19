@@ -6,6 +6,7 @@ from app.models.leave import LeaveRequest
 from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, PayrollStatusEnum
 
 
+
 def test_salary_structure_creation_and_rbac(client, admin_token, employee_token, test_employee):
     payload = {
         "employee_id": test_employee.id,
@@ -246,3 +247,54 @@ def test_download_payslip_pdf(client, admin_token, test_employee):
     assert "attachment; filename=" in res_pdf.headers["content-disposition"]
     # Verify standard PDF magic header (%PDF)
     assert res_pdf.content.startswith(b"%PDF")
+
+
+def test_leave_apply(client, employee_token, test_employee, seed_leave_balance):
+    res_first = client.post(
+                    "/leaves/requests",
+                    json={
+                        "employee_id": test_employee.id,
+                        "leave_type_id": seed_leave_balance.leave_type_id,
+                        "start_date": "2026-10-05",
+                        "end_date": "2026-10-08",
+                        "reason": "Casual Leave"
+                    },
+                    headers={"Authorization": f"Bearer {employee_token}"},
+                )
+
+    
+    assert res_first.status_code == 200
+
+    res_sec = client.post(
+        "/leaves/requests",
+        json={
+            "employee_id": test_employee.id,
+            "leave_type_id": seed_leave_balance.leave_type_id,
+            "start_date": "2026-10-06",
+            "end_date": "2026-10-09",
+            "reason": "Casual Leave"
+        },
+        headers={"Authorization": f"Bearer {employee_token}"},
+    )
+    assert res_sec.status_code == 400
+    assert "already have a pending or approved" in res_sec.json()["detail"]
+
+
+def test_leave_balance_insufficient_days(client, employee_token, test_employee, seed_leave_balance):
+
+    res = client.post(
+        "/leaves/requests",
+        json={
+            "employee_id": test_employee.id,
+            "leave_type_id": seed_leave_balance.leave_type_id,
+            "start_date": "2026-10-01",
+            "end_date": "2026-10-20",  # 20 days, more than the 12 allocated
+            "reason": "Long leave request",
+        },
+        headers={"Authorization": f"Bearer {employee_token}"},
+    )
+    assert res.status_code == 400
+    assert "Insufficient leave balance" in res.json()["detail"]
+    
+
+    

@@ -10,7 +10,7 @@ from app.core.database import Base, get_db
 from app.core.security import hash_password, create_access_token
 from app.main import app
 from app.models.employee import Employee
-from app.models.leave import LeaveType
+from app.models.leave import LeaveType, LeaveBalance
 from app.models.enums import RoleEnum, EmploymentStatusEnum
 
 # Use a separate test database or an in-memory SQLite database
@@ -116,3 +116,18 @@ def seed_leave_types(db_session):
     db_session.add_all([casual, lop])
     db_session.commit()
     return {"casual": casual, "lop": lop}
+
+@pytest.fixture
+def seed_leave_balance(db_session, test_employee, seed_leave_types):
+    balance = LeaveBalance(
+        employee_id = test_employee.id,
+        leave_type_id = seed_leave_types["casual"].id,
+        year = 2026,
+        allocated_days = Decimal("12.0"),
+        used_days = Decimal("0.0"),
+    )
+    db_session.add(balance)
+    db_session.commit()
+    return balance
+
+
