@@ -16,3 +16,7 @@ venv/
 # OS files
 Thumbs.db
 .DS_Store
+
+*.db
+.pytest_cache/
+__pycache__/

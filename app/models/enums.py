@@ -29,6 +29,13 @@ class CompOffStatusEnum(str, enum.Enum):
     approved = "approved"
     rejected = "rejected"
 
-    
+class PayrollStatusEnum(str, enum.Enum):
+    draft = "draft"
+    processed = "processed"
+    paid = "paid"
+
+
+class SalaryFrequencyEnum(str, enum.Enum):
+    monthly = "monthly"
 
     

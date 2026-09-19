@@ -9,10 +9,11 @@ class LeaveType(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(String(225), nullable=True)
-    default_days_per_year = Column(Numeric(4, 1), nullable=False, default=12.0) 
+    default_days_per_year = Column(Numeric(4, 1), nullable=False, default=12.0)
+    is_paid = Column(Boolean, default=True, server_default=text("true"), nullable=False)
     is_active = Column(Boolean, default=True, server_default=text("true"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False) 
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     balances = relationship("LeaveBalance", back_populates="leave_type")
     requests = relationship("LeaveRequest", back_populates="leave_type")

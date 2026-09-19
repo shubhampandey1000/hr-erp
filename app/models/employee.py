@@ -39,6 +39,9 @@ class Employee(Base):
         primaryjoin="and_(Employee.id == remote(Employee.manager_id), Employee.is_active == True)"
     )
 
+    salary_structure = relationship("SalaryStructure", back_populates="employee", uselist=False, cascade="all, delete-orphan")
+    payroll_records = relationship("PayrollRecord", back_populates="employee", cascade="all, delete-orphan")
+
 
     __table_args__ = (
         Index(
