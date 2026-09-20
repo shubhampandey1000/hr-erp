@@ -27,7 +27,7 @@ def create_leave_type(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
 ):
-    return LeaveService.create_leave_type(db, data)
+    return LeaveService.create_leave_type(db, data, current_user)
 
 
 @router.get("/types", response_model=list[LeaveTypeResponse])

@@ -10,6 +10,7 @@ from app.schemas.department import (
 from app.services.department_service import DepartmentService
 from app.core.dependencies import get_current_user
 from app.schemas.department import DepartmentEmployeeResponse
+from app.models.enums import RoleEnum
 router = APIRouter(
     prefix="/departments",
     tags=["Departments"]
@@ -19,38 +20,42 @@ router = APIRouter(
 def create_department(
     department: DepartmentCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(require_roles("admin"))
+    current_user = Depends(require_roles(RoleEnum.admin.value))
 ):
     return DepartmentService.create_department(
         db,
-        department
+        department,
+        current_user,
     )
 
 
 @router.get("/", response_model=list[DepartmentResponse])
 def get_departments(db:Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return DepartmentService.get_departments(db)
+    return DepartmentService.get_departments(db, current_user)
 
 @router.get("/{department_id}", response_model=DepartmentResponse)
 def get_department(department_id: int, db:Session = Depends(get_db), current_user=Depends(get_current_user)):
     return DepartmentService.get_department_by_id(
         db,
-        department_id
+        department_id,
+        current_user
     )
 
 @router.patch("/{department_id}", response_model=DepartmentResponse)
-def update_department(department_id: int, department: DepartmentUpdate, db:Session = Depends(get_db), current_user= Depends(require_roles("admin"))):
+def update_department(department_id: int, department: DepartmentUpdate, db:Session = Depends(get_db), current_user = Depends(require_roles(RoleEnum.admin.value))):
     return DepartmentService.update_department(
         db,
         department_id,
-        department
+        department,
+        current_user,
     )
 
 @router.delete("/{department_id}")
-def delete_department(department_id: int, db:Session = Depends(get_db), current_user = Depends(require_roles("admin"))):
+def delete_department(department_id: int, db:Session = Depends(get_db), current_user = Depends(require_roles(RoleEnum.admin.value))):
     return DepartmentService.delete_department(
         db,
-        department_id
+        department_id,
+        current_user,
     )
 
 @router.get(
@@ -64,5 +69,6 @@ def get_department_employees(
 ):
     return DepartmentService.get_department_employees(
         db,
-        department_id
+        department_id,
+        current_user,
     )

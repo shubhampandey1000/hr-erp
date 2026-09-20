@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy import text
 from sqlalchemy.orm import relationship
@@ -9,6 +9,7 @@ class Department(Base):
     __tablename__ = "departments"
 
     id = Column(Integer, primary_key = True, index = True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     name = Column(String(200), nullable = False)
     description = Column(String, nullable = True)
     is_active = Column(Boolean, nullable = False, default = True, server_default = text("true"))
@@ -24,6 +25,7 @@ class Department(Base):
     __table_args__ = (
         Index(
             "uq_active_department_name",
+            "organization_id",
             "name",
             unique=True,
             postgresql_where=(is_active.is_(True))

@@ -1,6 +1,6 @@
 import os
 import pytest
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -12,6 +12,8 @@ from app.main import app
 from app.models.employee import Employee
 from app.models.leave import LeaveType, LeaveBalance
 from app.models.enums import RoleEnum, EmploymentStatusEnum
+from app.models.attendance import Attendance, AttendanceStatusEnum
+from app.models.organization import Organization
 
 # Use a separate test database or an in-memory SQLite database
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_hr_erp.db"
@@ -60,10 +62,22 @@ def client(db_session):
         yield test_client
     app.dependency_overrides.clear()
 
+@pytest.fixture
+def seed_organization(db_session):
+    organization = Organization(
+        name = "Organisation",
+        slug = "Slug",
+        subscription_status = "trial",
+    )
+
+    db_session.add(organization)
+    db_session.commit()
+    return organization
 
 @pytest.fixture
-def test_admin(db_session) -> Employee:
+def test_admin(db_session, seed_organization) -> Employee:
     admin = Employee(
+        organization_id = seed_organization.id,
         first_name="Admin",
         last_name="User",
         email="admin_test@example.com",
@@ -81,8 +95,9 @@ def test_admin(db_session) -> Employee:
 
 
 @pytest.fixture
-def test_employee(db_session) -> Employee:
+def test_employee(db_session, seed_organization) -> Employee:
     emp = Employee(
+        organization_id = seed_organization.id,
         first_name="Jane",
         last_name="Doe",
         email="jane_test@example.com",
@@ -110,16 +125,17 @@ def employee_token(test_employee) -> str:
 
 
 @pytest.fixture
-def seed_leave_types(db_session):
-    casual = LeaveType(name="Casual Leave", is_paid=True, default_days_per_year=12.0)
-    lop = LeaveType(name="Loss of Pay (LOP)", is_paid=False, default_days_per_year=0.0)
+def seed_leave_types(db_session, seed_organization):
+    casual = LeaveType(organization_id=seed_organization.id, name="Casual Leave", is_paid=True, default_days_per_year=12.0)
+    lop = LeaveType(organization_id=seed_organization.id, name="Loss of Pay (LOP)", is_paid=False, default_days_per_year=0.0)
     db_session.add_all([casual, lop])
     db_session.commit()
     return {"casual": casual, "lop": lop}
 
 @pytest.fixture
-def seed_leave_balance(db_session, test_employee, seed_leave_types):
+def seed_leave_balance(db_session, test_employee, seed_leave_types, seed_organization):
     balance = LeaveBalance(
+        organization_id=seed_organization.id,
         employee_id = test_employee.id,
         leave_type_id = seed_leave_types["casual"].id,
         year = 2026,
@@ -129,5 +145,19 @@ def seed_leave_balance(db_session, test_employee, seed_leave_types):
     db_session.add(balance)
     db_session.commit()
     return balance
+
+@pytest.fixture
+def seed_attendance(db_session, test_employee, seed_organization):
+    attendance = Attendance(
+        organization_id=seed_organization.id,
+        employee_id = test_employee.id,
+        work_date = date.today(),
+        clock_in = datetime.now(),
+        status = "present",
+    )
+    db_session.add(attendance)
+    db_session.commit()
+    return attendance
+
 
 

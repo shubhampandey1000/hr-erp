@@ -10,6 +10,7 @@ class SalaryStructure(Base):
     __tablename__ = "salary_structures"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(
         Integer,
         ForeignKey("employees.id", ondelete="CASCADE"),
@@ -31,12 +32,14 @@ class SalaryStructure(Base):
     )
 
     employee = relationship("Employee", back_populates="salary_structure")
+    organization = relationship("Organization")
 
 
 class PayrollRecord(Base):
     __tablename__ = "payroll_records"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)
@@ -71,6 +74,7 @@ class PayrollRecord(Base):
     )
 
     employee = relationship("Employee", back_populates="payroll_records")
+    organization = relationship("Organization")
 
     __table_args__ = (
         UniqueConstraint("employee_id", "year", "month", name="uq_employee_payroll_month"),

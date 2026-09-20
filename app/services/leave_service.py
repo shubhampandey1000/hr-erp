@@ -20,7 +20,7 @@ class LeaveService:
     # ===================== LEAVE TYPES =====================
 
     @staticmethod
-    def create_leave_type(db:Session, data: LeaveTypeCreate) -> LeaveType:
+    def create_leave_type(db:Session, data: LeaveTypeCreate, current_user: Employee) -> LeaveType:
         existing = (
             db.query(LeaveType)
             .filter(LeaveType.name == data  .name, LeaveType.is_active.is_(True))
@@ -32,7 +32,7 @@ class LeaveService:
                 status_code=409,
                 detail=f"Leave type '{data.name}' already exists."
             )
-        leave_type = LeaveType(**data.model_dump())
+        leave_type = LeaveType(**data.model_dump(), organization_id=current_user.organization_id,)
         db.add(leave_type)
         db.commit()
         db.refresh(leave_type)
@@ -126,7 +126,7 @@ class LeaveService:
                     detail=f"Leave balance already allocated for this employee, leave type, and year {data.year}."
                 )
         
-        balance = LeaveBalance(**data.model_dump(), used_days=Decimal("0.0"))
+        balance = LeaveBalance(**data.model_dump(), organization_id=employee.organization_id, used_days=Decimal("0.0"))
         db.add(balance)
         db.commit()
         db.refresh(balance)
@@ -167,7 +167,7 @@ class LeaveService:
                 status_code=400,
                 detail="end_date cannot be earlier than start_date."
             )
-
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
         # Inclusive day calculation (simple calendar day count)
         requested_days = Decimal((data.end_date - data.start_date).days + 1)
 
@@ -215,6 +215,7 @@ class LeaveService:
             )
         
         leave_req = LeaveRequest(
+            organization_id=emp.organization_id,
             employee_id=employee_id,
             leave_type_id=data.leave_type_id,
             start_date=data.start_date,

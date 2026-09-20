@@ -57,6 +57,7 @@ class PayrollService:
             return existing
 
         structure = SalaryStructure(
+            organization_id=emp.organization_id,
             employee_id=data.employee_id,
             base_salary=data.base_salary,
             hra=data.hra,
@@ -206,6 +207,7 @@ class PayrollService:
             record.status = PayrollStatusEnum.processed.value
         else:
             record = PayrollRecord(
+                organization_id=employee.organization_id,
                 employee_id=employee.id,
                 year=year,
                 month=month,

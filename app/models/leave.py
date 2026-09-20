@@ -7,6 +7,7 @@ class LeaveType(Base):
     __tablename__ = "leave_types"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     description = Column(String(225), nullable=True)
     default_days_per_year = Column(Numeric(4, 1), nullable=False, default=12.0)
@@ -17,10 +18,12 @@ class LeaveType(Base):
 
     balances = relationship("LeaveBalance", back_populates="leave_type")
     requests = relationship("LeaveRequest", back_populates="leave_type")
+    organization = relationship("Organization")
 
     __table_args__ = (
         Index(
             "uq_active_leave_type_name",
+            "organization_id",
             "name",
             unique=True,
             postgresql_where=(is_active.is_(True))
@@ -31,6 +34,7 @@ class LeaveBalance(Base):
     __tablename__ = "leave_balances"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     leave_type_id = Column(Integer, ForeignKey("leave_types.id"), nullable=False)
     year = Column(Integer, nullable=False)
@@ -41,6 +45,7 @@ class LeaveBalance(Base):
 
     employee = relationship("Employee")
     leave_type = relationship("LeaveType", back_populates="balances")
+    organization = relationship("Organization")
 
     __table_args__ = (
         Index(
@@ -56,6 +61,7 @@ class LeaveRequest(Base):
     __tablename__ = "leave_requests"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     leave_type_id = Column(Integer, ForeignKey("leave_types.id"), nullable=False)
     start_date = Column(Date, nullable=False)
@@ -80,5 +86,6 @@ class LeaveRequest(Base):
     employee = relationship("Employee", foreign_keys=[employee_id])
     approver = relationship("Employee", foreign_keys=[approver_id])
     leave_type = relationship("LeaveType", back_populates="requests")
+    organization = relationship("Organization")
 
     

@@ -10,6 +10,7 @@ from app.models.leave import LeaveRequest, LeaveType, LeaveBalance
 from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, RoleEnum, CompOffStatusEnum
 from app.schemas.attendance import ClockInRequest, ClockOutRequest, AttendanceManualCreate
 from sqlalchemy.exc import IntegrityError
+from app.models import Organization
 
 class AttendanceService:
 
@@ -50,7 +51,7 @@ class AttendanceService:
     def clock_in(db: Session, employee_id: int, data: ClockInRequest) -> Attendance:
         now = datetime.now(timezone.utc)
         today = now.date()
-
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
         # 1. Check if on approved leave
         approved_leave = (
             db.query(LeaveRequest)
@@ -89,6 +90,7 @@ class AttendanceService:
                 )
             
         record = Attendance(
+            organization_id=emp.organization_id,
             employee_id=employee_id,
             work_date=today,
             clock_in=now,
@@ -267,7 +269,7 @@ class AttendanceService:
                 status_code=400,
                 detail="Cannot request Comp Off for future dates."
             )
-
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
         att = (
             db.query(Attendance)
             .filter(Attendance.employee_id == employee_id, Attendance.work_date == worked_date)
@@ -301,6 +303,7 @@ class AttendanceService:
             )
 
         req = CompOffRequest(
+            organization_id=emp.organization_id,
             employee_id=employee_id,
             worked_date=worked_date,
             credit_days=credit_days,
@@ -407,12 +410,13 @@ class AttendanceService:
         # Find or create 'Compensatory Off' leave type
         comp_off_type = (
             db.query(LeaveType)
-            .filter(LeaveType.name == "Compensatory Off", LeaveType.is_active.is_(True))
+            .filter(LeaveType.name == "Compensatory Off",LeaveType.organization_id == req.employee.organization_id, LeaveType.is_active.is_(True))
             .first()
         )
 
         if not comp_off_type:
             comp_off_type = LeaveType(
+                organization_id=req.employee.organization_id,
                 name="Compensatory Off",
                 description="Earned compensatory off from weekend work",
                 default_days_per_year=Decimal("0.0"),
@@ -435,6 +439,7 @@ class AttendanceService:
 
         if not balance:
             balance = LeaveBalance(
+                organization_id=req.employee.organization_id,
                 employee_id=req.employee_id,
                 leave_type_id=comp_off_type.id,
                 year=year,

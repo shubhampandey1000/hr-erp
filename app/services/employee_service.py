@@ -19,7 +19,8 @@ class EmployeeService:
     def _validate_manager_assignment(
         db:Session,
         employee_id: int | None,
-        manager_id: int | None
+        manager_id: int | None,
+        organization_id: int,
     )-> None:
         """
         Validates manager assignment:
@@ -38,7 +39,7 @@ class EmployeeService:
 
         manager = (
             db.query(Employee)
-            .filter(Employee.id == manager_id, Employee.is_active.is_(True))
+            .filter(Employee.id == manager_id, Employee.is_active.is_(True), Employee.organization_id == organization_id,)
             .first()
         )
 
@@ -92,7 +93,8 @@ class EmployeeService:
             db.query(Employee)
             .filter(
                 Employee.email == employee.email,
-                Employee.is_active == True
+                Employee.is_active == True,
+                Employee.organization_id == current_user.organization_id
                 )
             .first()
         )
@@ -111,7 +113,8 @@ class EmployeeService:
                 db.query(Department)
                 .filter(
                     Department.id == employee.department_id,
-                    Department.is_active == True
+                    Department.is_active == True,
+                    Department.organization_id == current_user.organization_id,
                 )
                 .first()
             )
@@ -123,14 +126,15 @@ class EmployeeService:
                 )
 
         if employee.manager_id is not None:
-            EmployeeService._validate_manager_assignment(db, employee_id=None, manager_id=employee.manager_id)
+            EmployeeService._validate_manager_assignment(db, employee_id=None, manager_id=employee.manager_id, organization_id=current_user.organization_id)
             
         if employee_data.get("employee_code"):
             duplicate_code = (
                 db.query(Employee)
                 .filter(
                     Employee.employee_code == employee_data["employee_code"],
-                    Employee.is_active == True
+                    Employee.is_active == True,
+                    Employee.organization_id == current_user.organization_id
                     )
                 .first()
                 )
@@ -146,7 +150,7 @@ class EmployeeService:
         if isinstance(employee_data.get("role"), RoleEnum):
             employee_data["role"] = employee_data["role"].value
 
-        db_employee = Employee(**employee_data)
+        db_employee = Employee(**employee_data, organization_id=current_user.organization_id)
         db.add(db_employee)
         db.commit()
         db.refresh(db_employee)
@@ -164,7 +168,8 @@ class EmployeeService:
         sort_by: str = "id",
         sort_order: str = "asc",
         skip: int = 0,
-        limit: int = 10
+        limit: int = 10,
+        current_user: Employee | None = None,
         ) -> dict:
 
         query = (
@@ -172,7 +177,7 @@ class EmployeeService:
             .options(joinedload(Employee.department),
                      joinedload(Employee.manager)
             )
-            .filter(Employee.is_active.is_(True))
+            .filter(Employee.is_active.is_(True), Employee.organization_id == current_user.organization_id)
         )
 
         if search:
@@ -191,7 +196,8 @@ class EmployeeService:
                 db.query(Department)
                 .filter(
                     Department.id == department_id,
-                    Department.is_active.is_(True)
+                    Department.is_active.is_(True),
+                    Department.organization_id == current_user.organization_id
                 )
                 .first()
             )
@@ -201,20 +207,21 @@ class EmployeeService:
                     detail="Department not found"
                 )
             query = query.filter(
-                            Employee.department_id == department_id
+                            Employee.department_id == department_id,
                         )
 
         if role is not None:
             role_value = role.value if isinstance(role, RoleEnum) else role
             query = query.filter(
-                Employee.role == role_value
+                Employee.role == role_value,
+                Employee.organization_id == current_user.organization_id
             )
         if manager_id is not None:
-            query = query.filter(Employee.manager_id == manager_id)
+            query = query.filter(Employee.manager_id == manager_id, Employee.organization_id == current_user.organization_id)
 
         if employment_status is not None:
             status_value = employment_status.value if isinstance(employment_status, EmploymentStatusEnum) else employment_status
-            query = query.filter(Employee.employment_status == status_value)
+            query = query.filter(Employee.employment_status == status_value, Employee.organization_id == current_user.organization_id)
  
 
         allowed_sort_fields = {
@@ -226,6 +233,7 @@ class EmployeeService:
             "date_of_joining": Employee.date_of_joining,
             "employment_status": Employee.employment_status,
             "created_at": Employee.created_at,
+            
         }
 
         if sort_by not in allowed_sort_fields:
@@ -260,7 +268,7 @@ class EmployeeService:
 
 
     @staticmethod
-    def get_employee_by_id(db:Session, employee_id: int) -> Employee:
+    def get_employee_by_id(db:Session, employee_id: int, current_user: Employee) -> Employee:
         
         employee = (
             db.query(Employee)
@@ -268,7 +276,8 @@ class EmployeeService:
                      joinedload(Employee.manager))
             .filter(
                 Employee.id == employee_id,
-                Employee.is_active == True
+                Employee.is_active == True,
+                Employee.organization_id == current_user.organization_id
             )
             .first()
         )
@@ -282,11 +291,12 @@ class EmployeeService:
         return employee
 
     @staticmethod
-    def update_employee(db:Session, employee_id: int, employee: EmployeeUpdate)-> Employee:
+    def update_employee(db:Session, employee_id: int, employee: EmployeeUpdate, current_user: Employee)-> Employee:
         
         existing_employee = EmployeeService.get_employee_by_id(
             db,
-            employee_id
+            employee_id,
+            current_user
         )
 
         update_data = employee.model_dump(exclude_unset=True)
@@ -299,7 +309,8 @@ class EmployeeService:
                 db.query(Department)
                 .filter(
                     Department.id == update_data["department_id"],
-                    Department.is_active == True
+                    Department.is_active == True,
+                    Department.organization_id == current_user.organization_id
                 )
                 .first()
             )
@@ -312,7 +323,8 @@ class EmployeeService:
             EmployeeService._validate_manager_assignment(
                 db,
                 employee_id=employee_id,
-                manager_id=update_data["manager_id"]
+                manager_id=update_data["manager_id"],
+                organization_id=current_user.organization_id
             )
 
         if "email" in update_data:
@@ -321,7 +333,8 @@ class EmployeeService:
                 .filter(
                     Employee.email == update_data["email"],
                     Employee.id != employee_id,
-                    Employee.is_active == True
+                    Employee.is_active == True,
+                    Employee.organization_id == existing_employee.organization_id,
                 )
                 .first()
             )
@@ -337,7 +350,8 @@ class EmployeeService:
                 .filter(
                     Employee.employee_code == update_data["employee_code"],
                     Employee.id != employee_id,
-                    Employee.is_active == True
+                    Employee.is_active == True,
+                    Employee.organization_id == existing_employee.organization_id,
                 )
                 .first()
             )
@@ -378,11 +392,12 @@ class EmployeeService:
     
 
     @staticmethod
-    def delete_employee(db: Session, employee_id: int)-> dict:
+    def delete_employee(db: Session, employee_id: int, current_user: Employee)-> dict:
 
         employee = EmployeeService.get_employee_by_id(
             db,
-            employee_id
+            employee_id,
+            current_user
         )
 
         employee.is_active = False
@@ -401,11 +416,13 @@ class EmployeeService:
     def update_role(
         db: Session,
         employee_id: int,
-        role: RoleEnum
+        role: RoleEnum,
+        current_user: Employee
     )-> Employee:
         employee = EmployeeService.get_employee_by_id(
             db,
-            employee_id
+            employee_id,
+            current_user
         )
 
         employee.role = (
@@ -420,24 +437,25 @@ class EmployeeService:
         return employee
 
     @staticmethod
-    def get_direct_reports(db: Session, employee_id: int) -> list[Employee]:
+    def get_direct_reports(db: Session, employee_id: int, current_user: Employee) -> list[Employee]:
         # Ensure manager exists and is active
-        EmployeeService.get_employee_by_id(db, employee_id)
+        EmployeeService.get_employee_by_id(db, employee_id, current_user)
         
         return (
             db.query(Employee)
             .filter(
                 Employee.manager_id == employee_id,
-                Employee.is_active.is_(True)
+                Employee.is_active.is_(True),
+                Employee.organization_id == current_user.organization_id
             )
             .order_by(Employee.first_name.asc())
             .all()
         )
 
     @staticmethod
-    def reactivate_employee(db: Session, employee_id: int) -> Employee:
+    def reactivate_employee(db: Session, employee_id: int, current_user: Employee) -> Employee:
         # Query without is_active filter to find deactivated records
-        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        employee = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == current_user.organization_id).first()
         
         if not employee:
             raise HTTPException(
@@ -457,7 +475,8 @@ class EmployeeService:
             .filter(
                 Employee.email == employee.email,
                 Employee.is_active.is_(True),
-                Employee.id != employee_id
+                Employee.id != employee_id,
+                Employee.organization_id == current_user.organization_id
             )
             .first()
         )
@@ -472,7 +491,8 @@ class EmployeeService:
             .filter(
                 Employee.employee_code == employee.employee_code,
                 Employee.is_active.is_(True),
-                Employee.id != employee_id
+                Employee.id != employee_id,
+                Employee.organization_id == current_user.organization_id
             )
             .first()
         )

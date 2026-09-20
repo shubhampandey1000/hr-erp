@@ -8,6 +8,7 @@ class Attendance(Base):
     __tablename__ = "attendance_records"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     work_date = Column(Date, nullable=False, index=True)
 
@@ -25,6 +26,7 @@ class Attendance(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     employee = relationship("Employee")
+    organization = relationship("Organization")
 
     __table_args__ = (
         Index(
@@ -40,6 +42,7 @@ class CompOffRequest(Base):
     __tablename__ = "comp_off_requests"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     worked_date = Column(Date, nullable=False)
     credit_days = Column(Numeric(4, 1), nullable=False)
@@ -61,6 +64,7 @@ class CompOffRequest(Base):
 
     employee = relationship("Employee", foreign_keys=[employee_id])
     approver = relationship("Employee", foreign_keys=[approver_id])
+    organization = relationship("Organization")
 
     __table_args__ = (
         Index("uq_employee_worked_date_compoff", "employee_id", "worked_date", unique=True),

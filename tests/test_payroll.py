@@ -85,11 +85,12 @@ def test_payroll_calculation_zero_attendance(client, admin_token, test_employee)
     assert rec["status"] == "processed"
 
 
-def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session, test_employee, seed_leave_types):
+def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session, test_employee, seed_leave_types, seed_organization):
     # Setup salary structure
     client.post(
         "/payroll/salary-structures",
         json={
+            "organization_id": seed_organization.id,
             "employee_id": test_employee.id,
             "base_salary": 60000.00,
             "hra": 20000.00,
@@ -108,6 +109,7 @@ def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session,
         d = date(2026, 10, day)
         if d.weekday() not in [5, 6]:
             rec = Attendance(
+                organization_id=test_employee.organization_id,
                 employee_id=test_employee.id,
                 work_date=d,
                 clock_in=datetime(2026, 10, day, 9, 0, tzinfo=timezone.utc),
@@ -119,6 +121,7 @@ def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session,
 
     # Add 2 days of approved paid Casual Leave on the remaining 2 weekdays (Oct 29-30)
     leave = LeaveRequest(
+        organization_id=test_employee.organization_id,
         employee_id=test_employee.id,
         leave_type_id=seed_leave_types["casual"].id,
         start_date=date(2026, 10, 29),
@@ -295,6 +298,16 @@ def test_leave_balance_insufficient_days(client, employee_token, test_employee, 
     )
     assert res.status_code == 400
     assert "Insufficient leave balance" in res.json()["detail"]
-    
+
+
 
     
+def test_attendance_clock_in_already_exists(client, employee_token, test_employee, seed_attendance):
+    res = client.post(
+        "/attendance/clock-in",
+        json={"notes": "Trying to clock in again today"},
+        headers={"Authorization": f"Bearer {employee_token}"},
+    )
+
+    assert res.status_code == 400
+    assert "already clocked in" in res.json()["detail"] or "already completed" in res.json()["detail"]

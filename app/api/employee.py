@@ -48,7 +48,8 @@ def get_employees(
         sort_by= sort_by,
         sort_order=sort_order,
         skip = skip,
-        limit = limit
+        limit = limit,
+        current_user = current_user,
         )
 
 
@@ -63,6 +64,7 @@ def update_employee(
         db,
         employee_id,
         update_data,
+        current_user,
     )
 
 
@@ -74,7 +76,8 @@ def get_employee(
 ):
     return EmployeeService.get_employee_by_id(
         db,
-        employee_id
+        employee_id,
+        current_user,
     )
 
 
@@ -86,7 +89,8 @@ def delete_employee(
 ):
     return EmployeeService.delete_employee(
         db,
-        employee_id
+        employee_id,
+        current_user,
     )
 
 
@@ -100,7 +104,8 @@ def update_role(
     return EmployeeService.update_role(
         db,
         employee_id,
-        role
+        role,
+        current_user,
     )
 
 @router.get("/{employee_id}/direct-reports", response_model=list[EmployeeBasic])
@@ -109,7 +114,7 @@ def get_direct_reports(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr, RoleEnum.manager)),
 ):
-    return EmployeeService.get_direct_reports(db, employee_id)
+    return EmployeeService.get_direct_reports(db, employee_id, current_user)
 
 @router.post("/{employee_id}/reactivate", response_model=EmployeeResponse)
 def reactivate_employee(
@@ -118,5 +123,5 @@ def reactivate_employee(
     current_user: Employee = Depends(require_roles(RoleEnum.admin)),
 ):
     """Reactivates a soft-deleted employee record."""
-    return EmployeeService.reactivate_employee(db, employee_id)
+    return EmployeeService.reactivate_employee(db, employee_id, current_user)
 

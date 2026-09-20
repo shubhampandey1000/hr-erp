@@ -7,6 +7,7 @@ class Employee(Base):
     __tablename__ = "employees"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
 
@@ -25,8 +26,8 @@ class Employee(Base):
     termination_date = Column(Date, nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable = True)
     department = relationship("Department", back_populates = "employees")
+    organization = relationship("Organization")
 
-    manager_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
     manager_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
     manager = relationship(
         "Employee",
@@ -46,12 +47,14 @@ class Employee(Base):
     __table_args__ = (
         Index(
             "uq_active_employee_email",
+            "organization_id",
             "email",
             unique = True,
             postgresql_where=(is_active.is_(True))
         ),
         Index(
             "uq_active_employee_code",
+            "organization_id",
             "employee_code",
             unique = True,
             postgresql_where=(is_active.is_(True))
