@@ -29,9 +29,9 @@ router = APIRouter(prefix="/payroll", tags=["Payroll Management"])
 def set_salary_structure(
     payload: SalaryStructureCreate,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
+    current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
 ):
-    return PayrollService.create_or_update_structure(db, payload)
+    return PayrollService.create_or_update_structure(db, payload, current_user)
 
 
 @router.get("/salary-structures/{employee_id}", response_model=SalaryStructureResponse)
@@ -40,11 +40,11 @@ def get_salary_structure(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    # Admins/HR can view all, employees can view only their own
+    # Admins/HR can view all within their org, employees can view only their own
     is_admin_or_hr = current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
     if not is_admin_or_hr and current_user.id != employee_id:
         raise HTTPException(status_code=403, detail="Access denied.")
-    return PayrollService.get_structure_by_employee(db, employee_id)
+    return PayrollService.get_structure_by_employee(db, employee_id, current_user)
 
 
 # ==========================================
@@ -55,9 +55,9 @@ def get_salary_structure(
 def process_payroll(
     payload: ProcessMonthlyPayrollRequest,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
+    current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
 ):
-    return PayrollService.process_monthly_payroll(db, payload)
+    return PayrollService.process_monthly_payroll(db, payload, current_user)
 
 
 # ==========================================
@@ -90,9 +90,9 @@ def update_payroll_status(
     record_id: int,
     payload: UpdatePayrollStatusRequest,
     db: Session = Depends(get_db),
-    _: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
+    current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
 ):
-    return PayrollService.update_status(db, record_id, payload)
+    return PayrollService.update_status(db, record_id, payload, current_user)
 
 
 @router.get("/records/{record_id}/payslip/pdf")
@@ -104,7 +104,10 @@ def download_payslip_pdf(
     record = (
         db.query(PayrollRecord)
         .options(joinedload(PayrollRecord.employee))
-        .filter(PayrollRecord.id == record_id)
+        .filter(
+            PayrollRecord.id == record_id,
+            PayrollRecord.organization_id == current_user.organization_id,
+        )
         .first()
     )
     if not record:

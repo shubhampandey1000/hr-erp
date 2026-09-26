@@ -48,15 +48,22 @@ class AttendanceService:
         return total_hours, overtime_hours, status_val
 
     @staticmethod
-    def clock_in(db: Session, employee_id: int, data: ClockInRequest) -> Attendance:
+    def clock_in(db: Session, employee_id: int, data: ClockInRequest, current_user) -> Attendance:
         now = datetime.now(timezone.utc)
         today = now.date()
-        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        emp = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == current_user.organization_id,).first()
+
+        if not emp:
+            raise HTTPException(
+                status_code=404,
+                detail="Employee not found."
+            )
         # 1. Check if on approved leave
         approved_leave = (
             db.query(LeaveRequest)
             .filter(
                 LeaveRequest.employee_id == employee_id,
+                LeaveRequest.organization_id == current_user.organization_id,
                 LeaveRequest.status == LeaveStatusEnum.approved.value,
                 LeaveRequest.start_date <= today,
                 LeaveRequest.end_date >= today,
@@ -73,7 +80,7 @@ class AttendanceService:
         # 2. Check existing record
         record = (
             db.query(Attendance)
-            .filter(Attendance.employee_id == employee_id, Attendance.work_date == today)
+            .filter(Attendance.employee_id == employee_id, Attendance.organization_id == current_user.organization_id, Attendance.work_date == today)
             .first()
         )
 
@@ -121,13 +128,13 @@ class AttendanceService:
         )
 
     @staticmethod
-    def clock_out(db: Session, employee_id: int, data: ClockOutRequest) -> Attendance:
+    def clock_out(db: Session, employee_id: int, data: ClockOutRequest, current_user: Employee,) -> Attendance:
         now = datetime.now(timezone.utc)
         today = now.date()
 
         record = (
             db.query(Attendance)
-            .filter(Attendance.employee_id == employee_id, Attendance.work_date == today)
+            .filter(Attendance.employee_id == employee_id, Attendance.work_date == today, Attendance.organization_id == current_user.organization_id,)
             .first()
         )
 
@@ -172,16 +179,20 @@ class AttendanceService:
         skip: int = 0,
         limit: int = 20
     ) -> dict:
-        query = db.query(Attendance).options(joinedload(Attendance.employee))
+        query = (
+            db.query(Attendance)
+            .options(joinedload(Attendance.employee))
+            .filter(Attendance.organization_id == current_user.organization_id)
+        )
 
         # Authorization filtering
         if current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]:
-            if employee_id:
+            if employee_id is not None:
                 query = query.filter(Attendance.employee_id == employee_id)
         elif current_user.role in [RoleEnum.manager.value, RoleEnum.manager]:
             direct_report_ids = [emp.id for emp in current_user.direct_reports]
             allowed_ids = [current_user.id] + direct_report_ids
-            if employee_id:
+            if employee_id is not None:
                 if employee_id not in allowed_ids:
                     raise HTTPException(status_code=403, detail="Access denied.")
                 query = query.filter(Attendance.employee_id == employee_id)
@@ -190,7 +201,7 @@ class AttendanceService:
         else:
             query = query.filter(Attendance.employee_id == current_user.id)
 
-        if work_date:
+        if work_date is not None:
             query = query.filter(Attendance.work_date == work_date)
 
         total = query.count()
@@ -231,6 +242,7 @@ class AttendanceService:
             db.query(Attendance)
             .filter(
                 Attendance.employee_id == employee_id,
+                Attendance.organization_id == current_user.organization_id,
                 extract("year", Attendance.work_date) == year,
                 extract("month", Attendance.work_date) == month,
             )
@@ -257,7 +269,7 @@ class AttendanceService:
         }
 
     @staticmethod
-    def request_comp_off(db: Session, employee_id: int, worked_date: date, reason: str) -> CompOffRequest:
+    def request_comp_off(db: Session, employee_id: int, worked_date: date, reason: str, current_user: Employee,) -> CompOffRequest:
         if worked_date.weekday() not in [5, 6]:
             raise HTTPException(
                 status_code=400,
@@ -269,10 +281,15 @@ class AttendanceService:
                 status_code=400,
                 detail="Cannot request Comp Off for future dates."
             )
-        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        emp = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == current_user.organization_id,).first()
+        if not emp:
+            raise HTTPException(
+                status_code=404,
+                detail="Employee not found."
+            )
         att = (
             db.query(Attendance)
-            .filter(Attendance.employee_id == employee_id, Attendance.work_date == worked_date)
+            .filter(Attendance.employee_id == employee_id, Attendance.work_date == worked_date, Attendance.organization_id == current_user.organization_id,)
             .first()
         )
 
@@ -292,7 +309,7 @@ class AttendanceService:
 
         existing = (
             db.query(CompOffRequest)
-            .filter(CompOffRequest.employee_id == employee_id, CompOffRequest.worked_date == worked_date)
+            .filter(CompOffRequest.employee_id == employee_id, CompOffRequest.worked_date == worked_date, CompOffRequest.organization_id == current_user.organization_id,)
             .first()
         )
 
@@ -341,6 +358,9 @@ class AttendanceService:
                 joinedload(CompOffRequest.employee),
                 joinedload(CompOffRequest.approver)
             )
+            .filter(
+                CompOffRequest.organization_id == current_user.organization_id
+            )
         )
 
         # Scoped access: Admin/HR -> All, Manager -> Self + Direct Reports, Employee -> Self
@@ -377,7 +397,7 @@ class AttendanceService:
         req = (
             db.query(CompOffRequest)
             .options(joinedload(CompOffRequest.employee))
-            .filter(CompOffRequest.id == request_id)
+            .filter(CompOffRequest.id == request_id, CompOffRequest.organization_id == approver.organization_id,)
             .with_for_update()
             .first()
         )
@@ -405,12 +425,16 @@ class AttendanceService:
             )
 
         # Serialize balance creation and updates for this employee.
-        db.query(Employee).filter(Employee.id == req.employee_id).with_for_update().one()
+        db.query(Employee).filter(Employee.id == req.employee_id, Employee.organization_id == approver.organization_id,).with_for_update().one()
 
         # Find or create 'Compensatory Off' leave type
         comp_off_type = (
             db.query(LeaveType)
-            .filter(LeaveType.name == "Compensatory Off",LeaveType.organization_id == req.employee.organization_id, LeaveType.is_active.is_(True))
+            .filter(
+                LeaveType.name == "Compensatory Off",
+                LeaveType.organization_id == approver.organization_id,
+                LeaveType.is_active.is_(True),
+            )
             .first()
         )
 
@@ -432,6 +456,7 @@ class AttendanceService:
                 LeaveBalance.employee_id == req.employee_id,
                 LeaveBalance.leave_type_id == comp_off_type.id,
                 LeaveBalance.year == year,
+                LeaveBalance.organization_id == approver.organization_id,
             )
             .with_for_update()
             .first()
@@ -467,7 +492,7 @@ class AttendanceService:
                 joinedload(CompOffRequest.employee),
                 joinedload(CompOffRequest.approver)
             )
-            .filter(CompOffRequest.id == request_id)
+            .filter(CompOffRequest.id == request_id, CompOffRequest.organization_id == approver.organization_id,)
             .with_for_update()
             .first()
         )

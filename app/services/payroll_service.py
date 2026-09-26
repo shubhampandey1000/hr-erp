@@ -22,7 +22,7 @@ class PayrollService:
     VALID_TRANSITIONS = {
         PayrollStatusEnum.draft.value: [PayrollStatusEnum.processed.value],
         PayrollStatusEnum.processed.value: [PayrollStatusEnum.paid.value, PayrollStatusEnum.draft.value],
-        PayrollStatusEnum.paid.value: [],  # Terminal state: cannot be modified or moved back
+        PayrollStatusEnum.paid.value: [],
     }
 
     @staticmethod
@@ -34,14 +34,20 @@ class PayrollService:
     # -------------------------------------------------------------
 
     @staticmethod
-    def create_or_update_structure(db: Session, data: SalaryStructureCreate) -> SalaryStructure:
-        emp = db.query(Employee).filter(Employee.id == data.employee_id).first()
+    def create_or_update_structure(db: Session, data: SalaryStructureCreate, current_user: Employee) -> SalaryStructure:
+        emp = db.query(Employee).filter(
+            Employee.id == data.employee_id,
+            Employee.organization_id == current_user.organization_id,
+        ).first()
         if not emp:
             raise HTTPException(status_code=404, detail="Employee not found.")
 
         existing = (
             db.query(SalaryStructure)
-            .filter(SalaryStructure.employee_id == data.employee_id)
+            .filter(
+                SalaryStructure.employee_id == data.employee_id,
+                SalaryStructure.organization_id == current_user.organization_id,
+            )
             .with_for_update()
             .first()
         )
@@ -71,10 +77,13 @@ class PayrollService:
         return structure
 
     @staticmethod
-    def get_structure_by_employee(db: Session, employee_id: int) -> SalaryStructure:
+    def get_structure_by_employee(db: Session, employee_id: int, current_user: Employee) -> SalaryStructure:
         structure = (
             db.query(SalaryStructure)
-            .filter(SalaryStructure.employee_id == employee_id)
+            .filter(
+                SalaryStructure.employee_id == employee_id,
+                SalaryStructure.organization_id == current_user.organization_id,
+            )
             .first()
         )
         if not structure:
@@ -97,7 +106,10 @@ class PayrollService:
     ) -> PayrollRecord:
         structure = (
             db.query(SalaryStructure)
-            .filter(SalaryStructure.employee_id == employee.id)
+            .filter(
+                SalaryStructure.employee_id == employee.id,
+                SalaryStructure.organization_id == employee.organization_id,
+            )
             .first()
         )
         if not structure:
@@ -119,6 +131,7 @@ class PayrollService:
             db.query(Attendance)
             .filter(
                 Attendance.employee_id == employee.id,
+                Attendance.organization_id == employee.organization_id,
                 extract("year", Attendance.work_date) == year,
                 extract("month", Attendance.work_date) == month,
             )
@@ -133,6 +146,7 @@ class PayrollService:
             .options(joinedload(LeaveRequest.leave_type))
             .filter(
                 LeaveRequest.employee_id == employee.id,
+                LeaveRequest.organization_id == employee.organization_id,
                 LeaveRequest.status == LeaveStatusEnum.approved.value,
                 LeaveRequest.start_date <= end_date,
                 LeaveRequest.end_date >= start_date,
@@ -159,9 +173,8 @@ class PayrollService:
 
         total_paid_units = present_days + (half_days * Decimal("0.5")) + paid_leave_days + Decimal(str(weekend_days))
         month_total_dec = Decimal(str(days_in_month))
-        
+
         lop_days = max(Decimal("0.0"), month_total_dec - total_paid_units)
-        # Combine explicit unpaid leave days and attendance deficit
         unpaid_leave_days = max(unpaid_leave_days, lop_days)
 
         gross_salary = structure.base_salary + structure.hra + structure.special_allowance
@@ -178,6 +191,7 @@ class PayrollService:
             db.query(PayrollRecord)
             .filter(
                 PayrollRecord.employee_id == employee.id,
+                PayrollRecord.organization_id == employee.organization_id,
                 PayrollRecord.year == year,
                 PayrollRecord.month == month,
             )
@@ -235,12 +249,17 @@ class PayrollService:
     @staticmethod
     def process_monthly_payroll(
         db: Session,
-        payload: ProcessMonthlyPayrollRequest
+        payload: ProcessMonthlyPayrollRequest,
+        current_user: Employee,
     ) -> dict:
         if payload.employee_id:
             emp = (
                 db.query(Employee)
-                .filter(Employee.id == payload.employee_id, Employee.is_active.is_(True))
+                .filter(
+                    Employee.id == payload.employee_id,
+                    Employee.is_active.is_(True),
+                    Employee.organization_id == current_user.organization_id,
+                )
                 .first()
             )
             if not emp:
@@ -248,14 +267,24 @@ class PayrollService:
             record = PayrollService._calculate_employee_month_payroll(db, emp, payload.year, payload.month)
             return {"processed": [record], "skipped": []}
 
-        active_employees = db.query(Employee).filter(Employee.is_active.is_(True)).all()
+        active_employees = (
+            db.query(Employee)
+            .filter(
+                Employee.is_active.is_(True),
+                Employee.organization_id == current_user.organization_id,
+            )
+            .all()
+        )
         processed = []
         skipped = []
 
         for emp in active_employees:
             has_structure = (
                 db.query(SalaryStructure.id)
-                .filter(SalaryStructure.employee_id == emp.id)
+                .filter(
+                    SalaryStructure.employee_id == emp.id,
+                    SalaryStructure.organization_id == current_user.organization_id,
+                )
                 .first()
             )
             if not has_structure:
@@ -288,7 +317,11 @@ class PayrollService:
         skip: int = 0,
         limit: int = 20,
     ) -> dict:
-        query = db.query(PayrollRecord).options(joinedload(PayrollRecord.employee))
+        query = (
+            db.query(PayrollRecord)
+            .options(joinedload(PayrollRecord.employee))
+            .filter(PayrollRecord.organization_id == current_user.organization_id)
+        )
 
         is_admin_or_hr = current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
         if is_admin_or_hr:
@@ -311,11 +344,15 @@ class PayrollService:
     def update_status(
         db: Session,
         record_id: int,
-        payload: UpdatePayrollStatusRequest
+        payload: UpdatePayrollStatusRequest,
+        current_user: Employee,
     ) -> PayrollRecord:
         record = (
             db.query(PayrollRecord)
-            .filter(PayrollRecord.id == record_id)
+            .filter(
+                PayrollRecord.id == record_id,
+                PayrollRecord.organization_id == current_user.organization_id,
+            )
             .with_for_update()
             .first()
         )

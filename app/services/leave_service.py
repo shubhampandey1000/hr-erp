@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
@@ -23,7 +23,7 @@ class LeaveService:
     def create_leave_type(db:Session, data: LeaveTypeCreate, current_user: Employee) -> LeaveType:
         existing = (
             db.query(LeaveType)
-            .filter(LeaveType.name == data  .name, LeaveType.is_active.is_(True))
+            .filter(LeaveType.name == data.name, LeaveType.organization_id == current_user.organization_id, LeaveType.is_active.is_(True))
             .first()
         )
 
@@ -39,16 +39,18 @@ class LeaveService:
         return leave_type
 
     @staticmethod
-    def get_leave_types(db:Session, include_inactive: bool = False) -> list[LeaveType]:
-        query = db.query(LeaveType)
+    def get_leave_types(db:Session, current_user: Employee, include_inactive: bool = False) -> list[LeaveType]:
+        query = db.query(LeaveType).filter(
+            LeaveType.organization_id == current_user.organization_id
+        )
 
         if not include_inactive:
             query = query.filter(LeaveType.is_active.is_(True))
         return query.order_by(LeaveType.name.asc()).all()
 
     @staticmethod
-    def update_leave_type(db: Session, leave_type_id: int, data: LeaveTypeUpdate) -> LeaveType:
-        leave_type = db.query(LeaveType).filter(LeaveType.id == leave_type_id).first()
+    def update_leave_type(db: Session, leave_type_id: int, data: LeaveTypeUpdate, current_user: Employee,) -> LeaveType:
+        leave_type = db.query(LeaveType).filter(LeaveType.id == leave_type_id, LeaveType.organization_id == current_user.organization_id).first()
 
         if not leave_type:
             raise HTTPException(
@@ -62,7 +64,8 @@ class LeaveService:
                 db.query(LeaveType)
                 .filter(LeaveType.name == update_dict["name"],
                         LeaveType.id != leave_type_id,
-                        LeaveType.is_active.is_(True)
+                        LeaveType.is_active.is_(True),
+                        LeaveType.organization_id == current_user.organization_id,
                 )
                 .first()
             )
@@ -84,31 +87,31 @@ class LeaveService:
     # ===================== LEAVE BALANCES =====================
 
     @staticmethod
-    def assign_leave_balance(db: Session, data: LeaveBalanceCreate) -> LeaveBalance:
-        # Validate employee
+    def assign_leave_balance(db: Session, data: LeaveBalanceCreate, current_user: Employee) -> LeaveBalance:
         employee = (
             db.query(Employee)
-            .filter(Employee.id == data.employee_id, Employee.is_active.is_(True))
+            .filter(
+                Employee.id == data.employee_id,
+                Employee.is_active.is_(True),
+                Employee.organization_id == current_user.organization_id,
+            )
             .first()
         )
-
         if not employee:
-            raise HTTPException(
-                status_code=404,
-                detail="Employee not found or inactive."
-            )
+            raise HTTPException(status_code=404, detail="Employee not found or inactive.")
 
-        # Validate leave type
         leave_type = (
             db.query(LeaveType)
-            .filter(LeaveType.id == data.leave_type_id, LeaveType.is_active.is_(True))
+            .filter(
+                LeaveType.id == data.leave_type_id,
+                LeaveType.is_active.is_(True),
+                LeaveType.organization_id == employee.organization_id,
+            )
             .first()
         )
         if not leave_type:
-            raise HTTPException(
-                status_code=404,
-                detail="Leave type not found or inactive."
-            )
+            raise HTTPException(status_code=404, detail="Leave type not found or inactive.")
+        
 
         # Check existing allocation
         existing = (
@@ -116,7 +119,8 @@ class LeaveService:
             .filter(
                 LeaveBalance.employee_id == data.employee_id,
                 LeaveBalance.leave_type_id == data.leave_type_id,
-                LeaveBalance.year == data.year
+                LeaveBalance.year == data.year,
+                LeaveBalance.organization_id == current_user.organization_id,
             )
             .first()
         )
@@ -134,16 +138,37 @@ class LeaveService:
 
 
     @staticmethod
-    def get_employee_balances(db:Session, employee_id: int, year: int) -> list[dict]:
+    def get_employee_balances(db: Session, employee_id: int, year: int, current_user: Employee) -> list[dict]:
+        is_admin_or_hr = current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
+        is_manager = current_user.role in [RoleEnum.manager.value, RoleEnum.manager]
+
+        if not is_admin_or_hr:
+            if is_manager:
+                direct_report_ids = [emp.id for emp in current_user.direct_reports]
+                if employee_id != current_user.id and employee_id not in direct_report_ids:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Access denied: You can only view balances for yourself and direct reports."
+                    )
+            else:
+                if employee_id != current_user.id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Access denied: You can only view your own leave balances."
+                    )
+
         balances = (
             db.query(LeaveBalance)
             .options(joinedload(LeaveBalance.leave_type))
-            .filter(LeaveBalance.employee_id == employee_id, LeaveBalance.year == year)
+            .filter(
+                LeaveBalance.employee_id == employee_id,
+                LeaveBalance.year == year,
+                LeaveBalance.organization_id == current_user.organization_id,
+            )
             .all()
         )
 
         result = []
-
         for b in balances:
             result.append({
                 "id": b.id,
@@ -161,33 +186,32 @@ class LeaveService:
     # ===================== LEAVE REQUESTS =====================
 
     @staticmethod
-    def apply_leave(db:Session, employee_id: int, data: LeaveRequestCreate) -> LeaveRequest:
+    def apply_leave(db: Session, employee_id: int, data: LeaveRequestCreate, current_user: Employee) -> LeaveRequest:
         if data.end_date < data.start_date:
-            raise HTTPException(
-                status_code=400,
-                detail="end_date cannot be earlier than start_date."
-            )
-        emp = db.query(Employee).filter(Employee.id == employee_id).first()
-        # Inclusive day calculation (simple calendar day count)
-        requested_days = Decimal((data.end_date - data.start_date).days + 1)
+            raise HTTPException(status_code=400, detail="end_date cannot be earlier than start_date.")
 
-        # Check overlapping requests
+        emp = db.query(Employee).filter(
+            Employee.id == employee_id,
+            Employee.organization_id == current_user.organization_id,
+        ).first()
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employee not found.")
+
+        requested_days = Decimal((data.end_date - data.start_date).days + 1)
 
         overlap = (
             db.query(LeaveRequest)
             .filter(
                 LeaveRequest.employee_id == employee_id,
+                LeaveRequest.organization_id == current_user.organization_id,
                 LeaveRequest.status.in_([LeaveStatusEnum.pending.value, LeaveStatusEnum.approved.value]),
                 LeaveRequest.start_date <= data.end_date,
-                LeaveRequest.end_date >= data.start_date
+                LeaveRequest.end_date >= data.start_date,
             )
             .first()
         )
         if overlap:
-            raise HTTPException(
-                status_code=400,
-                detail="You already have a pending or approved leave request spanning these dates."
-            )
+            raise HTTPException(status_code=400, detail="You already have a pending or approved leave request spanning these dates.")
 
         year = data.start_date.year
         balance = (
@@ -195,36 +219,28 @@ class LeaveService:
             .filter(
                 LeaveBalance.employee_id == employee_id,
                 LeaveBalance.leave_type_id == data.leave_type_id,
-                LeaveBalance.year == year
+                LeaveBalance.year == year,
+                LeaveBalance.organization_id == current_user.organization_id,
             )
             .first()
         )
-
         if not balance:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No leave balance allocated for this leave type in year {year}."
-            )
+            raise HTTPException(status_code=400, detail=f"No leave balance allocated for this leave type in year {year}.")
 
         remaining = balance.allocated_days - balance.used_days
-
         if remaining < requested_days:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient leave balance. Requested: {requested_days}, Available: {remaining}."
-            )
-        
+            raise HTTPException(status_code=400, detail=f"Insufficient leave balance. Requested: {requested_days}, Available: {remaining}.")
+
         leave_req = LeaveRequest(
-            organization_id=emp.organization_id,
+            organization_id=current_user.organization_id,
             employee_id=employee_id,
             leave_type_id=data.leave_type_id,
             start_date=data.start_date,
             end_date=data.end_date,
             days=requested_days,
             reason=data.reason,
-            status=LeaveStatusEnum.pending.value
+            status=LeaveStatusEnum.pending.value,
         )
-
         db.add(leave_req)
         db.commit()
         db.refresh(leave_req)
@@ -246,6 +262,9 @@ class LeaveService:
                 joinedload(LeaveRequest.employee),
                 joinedload(LeaveRequest.leave_type),
                 joinedload(LeaveRequest.approver)
+            )
+            .filter(
+                LeaveRequest.organization_id == current_user.organization_id
             )   
         )
 
@@ -291,7 +310,7 @@ class LeaveService:
                 joinedload(LeaveRequest.leave_type),
                 joinedload(LeaveRequest.approver)
             )
-            .filter(LeaveRequest.id == leave_request_id)
+            .filter(LeaveRequest.id == leave_request_id, LeaveRequest.organization_id == approver.organization_id)
             .first()
         )
 
@@ -323,7 +342,8 @@ class LeaveService:
             .filter(
                 LeaveBalance.employee_id == req.employee_id,
                 LeaveBalance.leave_type_id == req.leave_type_id,
-                LeaveBalance.year == year
+                LeaveBalance.year == year,
+                LeaveBalance.organization_id == approver.organization_id
             )
             .with_for_update()
             .first()
@@ -346,7 +366,7 @@ class LeaveService:
         req.status = LeaveStatusEnum.approved.value
         req.approver_id = approver.id
         req.action_reason = decision.action_reason
-        req.action_taken_at = datetime.now()
+        req.action_taken_at = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(req)
@@ -368,7 +388,7 @@ class LeaveService:
                 joinedload(LeaveRequest.leave_type),
                 joinedload(LeaveRequest.approver)
             )
-            .filter(LeaveRequest.id == leave_request_id)
+            .filter(LeaveRequest.id == leave_request_id, LeaveRequest.organization_id == approver.organization_id)
             .first()
         )
 
@@ -396,7 +416,7 @@ class LeaveService:
         req.status = LeaveStatusEnum.rejected.value
         req.approver_id = approver.id
         req.action_reason = decision.action_reason
-        req.action_taken_at = datetime.now()
+        req.action_taken_at = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(req)

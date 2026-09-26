@@ -36,7 +36,7 @@ def get_leave_types(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    return LeaveService.get_leave_types(db, include_inactive)
+    return LeaveService.get_leave_types(db, current_user, include_inactive)
 
 
 @router.put("/types/{leave_type_id}", response_model=LeaveTypeResponse)
@@ -46,7 +46,7 @@ def update_leave_type(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin)),
 ):
-    return LeaveService.update_leave_type(db, leave_type_id, data)
+    return LeaveService.update_leave_type(db, leave_type_id, data, current_user)
 
 
 # 2. Leave Balances
@@ -56,7 +56,7 @@ def assign_leave_balance(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
 ):
-    balance = LeaveService.assign_leave_balance(db, data)
+    balance = LeaveService.assign_leave_balance(db, data, current_user)
     return {
         "id": balance.id,
         "employee_id": balance.employee_id,
@@ -75,7 +75,7 @@ def get_my_balances(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    return LeaveService.get_employee_balances(db, current_user.id, year)
+    return LeaveService.get_employee_balances(db, current_user.id, year, current_user)
 
 
 @router.get("/balances/{employee_id}", response_model=list[LeaveBalanceResponse])
@@ -85,7 +85,7 @@ def get_employee_balances(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr, RoleEnum.manager)),
 ):
-    return LeaveService.get_employee_balances(db, employee_id, year)
+    return LeaveService.get_employee_balances(db, employee_id, year, current_user)
 
 
 # 3. Leave Requests
@@ -95,7 +95,7 @@ def apply_leave(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    return LeaveService.apply_leave(db, current_user.id, data)
+    return LeaveService.apply_leave(db, current_user.id, data, current_user)
 
 
 @router.get("/requests", response_model=PaginatedResponse[LeaveRequestResponse])

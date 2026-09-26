@@ -30,7 +30,7 @@ def clock_in(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    return AttendanceService.clock_in(db, current_user.id, data)
+    return AttendanceService.clock_in(db, current_user.id, data, current_user)
 
 
 @router.post("/clock-out", response_model=AttendanceResponse)
@@ -39,7 +39,7 @@ def clock_out(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    return AttendanceService.clock_out(db, current_user.id, data)
+    return AttendanceService.clock_out(db, current_user.id, data, current_user)
 
 
 @router.get("/", response_model=PaginatedResponse[AttendanceResponse])
@@ -82,7 +82,8 @@ def request_comp_off(
         db=db,
         employee_id=current_user.id,
         worked_date=data.worked_date,
-        reason=data.reason
+        reason=data.reason,
+        current_user = current_user
     )
 
 @router.get("/comp-off", response_model=PaginatedResponse[CompOffResponse])

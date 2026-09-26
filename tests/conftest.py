@@ -159,5 +159,60 @@ def seed_attendance(db_session, test_employee, seed_organization):
     db_session.commit()
     return attendance
 
+@pytest.fixture
+def seed_organization_b(db_session):
+    organization = Organization(
+        name="Organisation B",
+        slug="org-b",
+        subscription_status="trial",
+    )
+    db_session.add(organization)
+    db_session.commit()
+    return organization
+
+
+@pytest.fixture
+def test_admin_b(db_session, seed_organization_b) -> Employee:
+    admin = Employee(
+        organization_id=seed_organization_b.id,
+        first_name="Admin",
+        last_name="B",
+        email="admin_b_test@example.com",
+        hashed_password=hash_password("testpass"),
+        role=RoleEnum.admin.value,
+        employee_code="EMP_TEST_ADMIN_B",
+        is_active=True,
+        employment_status=EmploymentStatusEnum.active.value,
+        date_of_joining=date(2025, 1, 1),
+    )
+    db_session.add(admin)
+    db_session.commit()
+    db_session.refresh(admin)
+    return admin
+
+
+@pytest.fixture
+def test_employee_b(db_session, seed_organization_b) -> Employee:
+    emp = Employee(
+        organization_id=seed_organization_b.id,
+        first_name="John",
+        last_name="Smith",
+        email="john_b_test@example.com",
+        hashed_password=hash_password("testpass"),
+        role=RoleEnum.employee.value,
+        employee_code="EMP_TEST_B001",
+        is_active=True,
+        employment_status=EmploymentStatusEnum.active.value,
+        date_of_joining=date(2025, 1, 1),
+    )
+    db_session.add(emp)
+    db_session.commit()
+    db_session.refresh(emp)
+    return emp
+
+
+@pytest.fixture
+def admin_token_b(test_admin_b) -> str:
+    return create_access_token(data={"sub": test_admin_b.email})
 
 
