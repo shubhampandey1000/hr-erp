@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 120
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "DTZ"]
+ignore = ["B008", "E501"]  # B008: FastAPI's Depends() pattern is idiomatic; E501: line length is cosmetic, not enforced
+
+[tool.ruff.lint.per-file-ignores]
+"app/models/__init__.py" = ["F401"]        # intentional re-export module
+"scripts/seed_leave_types.py" = ["E402"]   # sys.path.insert must run before the import, by design
