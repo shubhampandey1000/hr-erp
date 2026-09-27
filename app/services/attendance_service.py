@@ -1,16 +1,25 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from fastapi import HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+
+from fastapi import HTTPException
 from sqlalchemy import extract, or_
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.attendance import Attendance, CompOffRequest
 from app.models.employee import Employee
-from app.models.leave import LeaveRequest, LeaveType, LeaveBalance
-from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, RoleEnum, CompOffStatusEnum
-from app.schemas.attendance import ClockInRequest, ClockOutRequest, AttendanceManualCreate
-from sqlalchemy.exc import IntegrityError
-from app.models import Organization
+from app.models.enums import (
+    AttendanceStatusEnum,
+    CompOffStatusEnum,
+    LeaveStatusEnum,
+    RoleEnum,
+)
+from app.models.leave import LeaveBalance, LeaveRequest, LeaveType
+from app.schemas.attendance import (
+    ClockInRequest,
+    ClockOutRequest,
+)
+
 
 class AttendanceService:
 
@@ -114,12 +123,12 @@ class AttendanceService:
                 raise HTTPException(
                     status_code=400,
                     detail="Attendance record already exists for today."
-                )
+                ) from exc
             raise HTTPException(
                 status_code=400,
                 detail="Could not record attendance due to a database constraint violation."
-            )
-
+            ) from exc
+ 
         return (
             db.query(Attendance)
             .options(joinedload(Attendance.employee))
@@ -191,7 +200,7 @@ class AttendanceService:
                 query = query.filter(Attendance.employee_id == employee_id)
         elif current_user.role in [RoleEnum.manager.value, RoleEnum.manager]:
             direct_report_ids = [emp.id for emp in current_user.direct_reports]
-            allowed_ids = [current_user.id] + direct_report_ids
+            allowed_ids = [current_user.id, *direct_report_ids]
             if employee_id is not None:
                 if employee_id not in allowed_ids:
                     raise HTTPException(status_code=403, detail="Access denied.")
@@ -336,11 +345,11 @@ class AttendanceService:
                 raise HTTPException(
                     status_code=409,
                     detail="A Comp Off request has already been submitted for this date."
-                )
+                ) from exc
             raise HTTPException(
                 status_code=400,
                 detail="Could not create the Comp Off request due to a database constraint violation."
-            )
+            ) from exc
         db.refresh(req)
         return req
 

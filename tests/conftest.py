@@ -1,18 +1,20 @@
+import contextlib
 import os
-import pytest
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base, get_db
-from app.core.security import hash_password, create_access_token
+from app.core.security import create_access_token, hash_password
 from app.main import app
+from app.models.attendance import Attendance
 from app.models.employee import Employee
-from app.models.leave import LeaveType, LeaveBalance
-from app.models.enums import RoleEnum, EmploymentStatusEnum
-from app.models.attendance import Attendance, AttendanceStatusEnum
+from app.models.enums import EmploymentStatusEnum, RoleEnum
+from app.models.leave import LeaveBalance, LeaveType
 from app.models.organization import Organization
 
 # Use a separate test database or an in-memory SQLite database
@@ -30,10 +32,8 @@ def setup_db():
     Base.metadata.drop_all(bind=engine)
     engine.dispose()  # <-- Releases the Windows file lock on SQLite
     if os.path.exists("./test_hr_erp.db"):
-        try:
+        with contextlib.suppress(PermissionError):
             os.remove("./test_hr_erp.db")
-        except PermissionError:
-            pass
 
 
 @pytest.fixture
@@ -151,8 +151,8 @@ def seed_attendance(db_session, test_employee, seed_organization):
     attendance = Attendance(
         organization_id=seed_organization.id,
         employee_id = test_employee.id,
-        work_date = date.today(),
-        clock_in = datetime.now(),
+        work_date = datetime.now(timezone.utc).date(),
+        clock_in = datetime.now(timezone.utc),
         status = "present",
     )
     db_session.add(attendance)

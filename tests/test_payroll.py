@@ -1,10 +1,9 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
-import pytest
-from app.models.attendance import Attendance
-from app.models.leave import LeaveRequest
-from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, PayrollStatusEnum
 
+from app.models.attendance import Attendance
+from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum
+from app.models.leave import LeaveRequest
 
 
 def test_salary_structure_creation_and_rbac(client, admin_token, employee_token, test_employee):

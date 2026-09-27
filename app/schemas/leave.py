@@ -1,9 +1,10 @@
 from datetime import date, datetime
 from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from app.models.enums import LeaveStatusEnum
 from app.schemas.common import EmployeeBasic
-
 
 # ===================== LEAVE TYPE SCHEMAS =====================
 

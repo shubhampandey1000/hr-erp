@@ -1,33 +1,42 @@
-import pytest
 from datetime import date, datetime, timezone
 from decimal import Decimal
+
+import pytest
 from fastapi import HTTPException
 
-from app.services.leave_service import LeaveService
-from app.services.attendance_service import AttendanceService
-from app.schemas.leave import LeaveRequestCreate, LeaveTypeCreate, LeaveBalanceCreate, LeaveDecision
-from app.schemas.attendance import ClockInRequest
-from app.models.attendance import Attendance, CompOffRequest
-from app.models.leave import LeaveRequest
-from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, CompOffStatusEnum, RoleEnum, EmploymentStatusEnum
-from app.models.employee import Employee
 from app.core.security import hash_password
-
-from app.services.payroll_service import PayrollService
+from app.models.attendance import Attendance, CompOffRequest
+from app.models.department import Department
+from app.models.employee import Employee
+from app.models.enums import (
+    AttendanceStatusEnum,
+    CompOffStatusEnum,
+    EmploymentStatusEnum,
+    LeaveStatusEnum,
+    PayrollStatusEnum,
+    RoleEnum,
+)
+from app.models.leave import LeaveRequest
+from app.models.payroll import PayrollRecord, SalaryStructure
+from app.schemas.attendance import ClockInRequest
+from app.schemas.department import DepartmentCreate, DepartmentUpdate
+from app.schemas.employee import EmployeeCreate, EmployeeUpdate
+from app.schemas.leave import (
+    LeaveBalanceCreate,
+    LeaveDecision,
+    LeaveRequestCreate,
+    LeaveTypeCreate,
+)
 from app.schemas.payroll import (
-    SalaryStructureCreate,
     ProcessMonthlyPayrollRequest,
+    SalaryStructureCreate,
     UpdatePayrollStatusRequest,
 )
-from app.models.payroll import SalaryStructure, PayrollRecord
-from app.models.enums import PayrollStatusEnum
-
-from app.services.employee_service import EmployeeService
+from app.services.attendance_service import AttendanceService
 from app.services.department_service import DepartmentService
-from app.schemas.employee import EmployeeCreate, EmployeeUpdate
-from app.schemas.department import DepartmentCreate, DepartmentUpdate
-from app.models.department import Department
-
+from app.services.employee_service import EmployeeService
+from app.services.leave_service import LeaveService
+from app.services.payroll_service import PayrollService
 
 # ===================== LEAVE SERVICE =====================
 

@@ -1,25 +1,24 @@
 from datetime import date, datetime, timezone
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_roles
+from app.core.scheduler import process_daily_attendance_job
 from app.models.employee import Employee
-from app.models.enums import RoleEnum, CompOffStatusEnum
-from app.schemas.common import PaginatedResponse
+from app.models.enums import CompOffStatusEnum, RoleEnum
 from app.schemas.attendance import (
+    AttendanceResponse,
     ClockInRequest,
     ClockOutRequest,
-    AttendanceResponse,
-    MonthlyAttendanceSummary,
-)
-from app.services.attendance_service import AttendanceService
-from app.core.scheduler import process_daily_attendance_job
-from app.schemas.attendance import (
     CompOffCreate,
     CompOffDecision,
     CompOffResponse,
+    MonthlyAttendanceSummary,
 )
+from app.schemas.common import PaginatedResponse
+from app.services.attendance_service import AttendanceService
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 

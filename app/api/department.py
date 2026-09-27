@@ -1,16 +1,17 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
-from app.core.dependencies import require_roles
+from app.core.dependencies import get_current_user, require_roles
+from app.models.enums import RoleEnum
 from app.schemas.department import (
     DepartmentCreate,
+    DepartmentEmployeeResponse,
+    DepartmentResponse,
     DepartmentUpdate,
-    DepartmentResponse
 )
 from app.services.department_service import DepartmentService
-from app.core.dependencies import get_current_user
-from app.schemas.department import DepartmentEmployeeResponse
-from app.models.enums import RoleEnum
+
 router = APIRouter(
     prefix="/departments",
     tags=["Departments"]

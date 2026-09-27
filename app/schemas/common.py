@@ -1,6 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import EmailStr
-from typing import Generic, TypeVar, List
+from typing import Generic, TypeVar
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 T = TypeVar("T")
 
@@ -25,7 +25,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total: int = Field(..., description="Total number of matching records")
     skip: int = Field(..., description="Number of skipped records")
     limit: int = Field(..., description="Max records returned per page")
-    items: List[T] = Field(..., description="List of items for the current page")
+    items: list[T] = Field(..., description="List of items for the current page")
 
 class ManagerBasic(BaseModel):
     id: int

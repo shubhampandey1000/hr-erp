@@ -1,7 +1,20 @@
-from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, func, text, ForeignKey, Index
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    text,
+)
+from sqlalchemy.orm import relationship
+
 from app.core.database import Base
-from app.models.enums import RoleEnum, EmploymentStatusEnum
-from sqlalchemy.orm import relationship, remote
+from app.models.enums import EmploymentStatusEnum, RoleEnum
+
 
 class Employee(Base):
     __tablename__ = "employees"

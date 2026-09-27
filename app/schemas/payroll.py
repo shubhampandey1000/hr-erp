@@ -1,8 +1,10 @@
 from datetime import date, datetime
 from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import PayrollStatusEnum
+
 
 class SalaryStructureBase(BaseModel):
     base_salary: Decimal = Field(..., gt=0, decimal_places=2, description="Monthly basic pay (must be > 0)")

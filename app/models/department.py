@@ -1,9 +1,18 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Index, ForeignKey
-from sqlalchemy.sql import func
-from sqlalchemy import text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    text,
+)
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.core.database import Base
+
 
 class Department(Base):
     __tablename__ = "departments"

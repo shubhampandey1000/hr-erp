@@ -1,6 +1,10 @@
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from app.schemas.common import EmployeeBasic, DepartmentBasic
+
+from pydantic import BaseModel, ConfigDict
+
+from app.schemas.common import DepartmentBasic, EmployeeBasic
+
+
 class DepartmentBase(BaseModel):
 
     name: str

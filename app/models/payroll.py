@@ -1,10 +1,21 @@
-from decimal import Decimal
-from sqlalchemy import Column, Integer, ForeignKey, Numeric, String, Date, DateTime, UniqueConstraint
-from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
+from decimal import Decimal
+
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 from app.models.enums import PayrollStatusEnum
+
 
 class SalaryStructure(Base):
     __tablename__ = "salary_structures"

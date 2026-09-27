@@ -8,7 +8,6 @@ if str(ROOT_DIR) not in sys.path:
 from app.core.database import SessionLocal
 from app.models.leave import LeaveType
 
-
 STANDARD_LEAVE_TYPES = [
     {
         "name": "Casual Leave",

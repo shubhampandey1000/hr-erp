@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db
-from app.models.employee import Employee
-from app.schemas.employee import EmployeeCreate, EmployeeResponse, EmployeeUpdate
 from app.core.dependencies import require_roles
-from app.models.enums import RoleEnum, EmploymentStatusEnum
+from app.models.employee import Employee
+from app.models.enums import EmploymentStatusEnum, RoleEnum
+from app.schemas.common import EmployeeBasic, PaginatedResponse
+from app.schemas.employee import EmployeeCreate, EmployeeResponse, EmployeeUpdate
 from app.services.employee_service import EmployeeService
-from app.schemas.common import PaginatedResponse, EmployeeBasic
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 

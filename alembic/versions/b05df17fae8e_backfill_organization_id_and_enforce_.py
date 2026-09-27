@@ -5,15 +5,15 @@ Revises: 7b7d8e8b2ca6
 Create Date: 2026-09-26 23:41:38.642074
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'b05df17fae8e'
-down_revision: Union[str, Sequence[str], None] = '7b7d8e8b2ca6'
+down_revision: str | Sequence[str] | None = '7b7d8e8b2ca6'
 branch_labels = None
 depends_on = None
 

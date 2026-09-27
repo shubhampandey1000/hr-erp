@@ -1,17 +1,17 @@
-from fastapi import HTTPException
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, asc, desc
-from app.models.employee import Employee
-from app.schemas.employee import (
-    EmployeeCreate,
-    EmployeeUpdate 
-)
 import random
 import string
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
+from sqlalchemy import asc, desc, or_
+from sqlalchemy.orm import Session, joinedload
+
 from app.core.security import hash_password
-from app.models.enums import RoleEnum, EmploymentStatusEnum
 from app.models.department import Department
-from datetime import date
+from app.models.employee import Employee
+from app.models.enums import EmploymentStatusEnum, RoleEnum
+from app.schemas.employee import EmployeeCreate, EmployeeUpdate
+
 
 class EmployeeService:
 
@@ -93,7 +93,7 @@ class EmployeeService:
             db.query(Employee)
             .filter(
                 Employee.email == employee.email,
-                Employee.is_active == True,
+                Employee.is_active,
                 Employee.organization_id == current_user.organization_id
                 )
             .first()
@@ -113,7 +113,7 @@ class EmployeeService:
                 db.query(Department)
                 .filter(
                     Department.id == employee.department_id,
-                    Department.is_active == True,
+                    Department.is_active,
                     Department.organization_id == current_user.organization_id,
                 )
                 .first()
@@ -133,7 +133,7 @@ class EmployeeService:
                 db.query(Employee)
                 .filter(
                     Employee.employee_code == employee_data["employee_code"],
-                    Employee.is_active == True,
+                    Employee.is_active,
                     Employee.organization_id == current_user.organization_id
                     )
                 .first()
@@ -276,7 +276,7 @@ class EmployeeService:
                      joinedload(Employee.manager))
             .filter(
                 Employee.id == employee_id,
-                Employee.is_active == True,
+                Employee.is_active,
                 Employee.organization_id == current_user.organization_id
             )
             .first()
@@ -309,7 +309,7 @@ class EmployeeService:
                 db.query(Department)
                 .filter(
                     Department.id == update_data["department_id"],
-                    Department.is_active == True,
+                    Department.is_active,
                     Department.organization_id == current_user.organization_id
                 )
                 .first()
@@ -333,7 +333,7 @@ class EmployeeService:
                 .filter(
                     Employee.email == update_data["email"],
                     Employee.id != employee_id,
-                    Employee.is_active == True,
+                    Employee.is_active,
                     Employee.organization_id == existing_employee.organization_id,
                 )
                 .first()
@@ -350,7 +350,7 @@ class EmployeeService:
                 .filter(
                     Employee.employee_code == update_data["employee_code"],
                     Employee.id != employee_id,
-                    Employee.is_active == True,
+                    Employee.is_active,
                     Employee.organization_id == existing_employee.organization_id,
                 )
                 .first()
@@ -378,9 +378,12 @@ class EmployeeService:
                 update_data["employment_status"] = status_val.value
 
             # Auto-set termination date if marked terminated without explicit date
-            if update_data["employment_status"] == EmploymentStatusEnum.terminated.value:
-                if not update_data.get("termination_date") and not existing_employee.termination_date:
-                    update_data["termination_date"] = date.today()
+            if (
+                update_data["employment_status"] == EmploymentStatusEnum.terminated.value
+                and not update_data.get("termination_date")
+                and not existing_employee.termination_date
+            ):
+                update_data["termination_date"] = datetime.now(timezone.utc).date()
 
         for key, value in update_data.items():
             setattr(existing_employee, key, value)
@@ -403,7 +406,7 @@ class EmployeeService:
         employee.is_active = False
         employee.employment_status = EmploymentStatusEnum.terminated.value
         if not employee.termination_date:
-            employee.termination_date = date.today()
+            employee.termination_date = datetime.now(timezone.utc).date()
 
         db.commit()
 

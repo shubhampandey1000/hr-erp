@@ -1,25 +1,32 @@
 import calendar
-from datetime import date, datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
-from fastapi import HTTPException
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import extract
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
+from typing import ClassVar
 
-from app.models.employee import Employee
-from app.models.payroll import SalaryStructure, PayrollRecord
+from fastapi import HTTPException
+from sqlalchemy import extract
+from sqlalchemy.orm import Session, joinedload
+
 from app.models.attendance import Attendance
+from app.models.employee import Employee
+from app.models.enums import (
+    AttendanceStatusEnum,
+    LeaveStatusEnum,
+    PayrollStatusEnum,
+    RoleEnum,
+)
 from app.models.leave import LeaveRequest
-from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum, PayrollStatusEnum, RoleEnum
+from app.models.payroll import PayrollRecord, SalaryStructure
 from app.schemas.payroll import (
-    SalaryStructureCreate,
     ProcessMonthlyPayrollRequest,
+    SalaryStructureCreate,
     UpdatePayrollStatusRequest,
 )
 
 
 class PayrollService:
 
-    VALID_TRANSITIONS = {
+    VALID_TRANSITIONS: ClassVar[dict[str, list[str]]] = {
         PayrollStatusEnum.draft.value: [PayrollStatusEnum.processed.value],
         PayrollStatusEnum.processed.value: [PayrollStatusEnum.paid.value, PayrollStatusEnum.draft.value],
         PayrollStatusEnum.paid.value: [],

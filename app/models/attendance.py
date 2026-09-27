@@ -1,5 +1,16 @@
-from sqlalchemy import Column, Integer, Date, DateTime, ForeignKey, Numeric, String, Index, func
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 from app.models.enums import AttendanceStatusEnum, CompOffStatusEnum
 

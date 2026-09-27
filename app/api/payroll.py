@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -6,16 +6,16 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_roles
 from app.models.employee import Employee
 from app.models.enums import RoleEnum
+from app.models.payroll import PayrollRecord
 from app.schemas.payroll import (
+    BatchPayrollResponse,
+    PayrollRecordResponse,
+    ProcessMonthlyPayrollRequest,
     SalaryStructureCreate,
     SalaryStructureResponse,
-    ProcessMonthlyPayrollRequest,
-    PayrollRecordResponse,
     UpdatePayrollStatusRequest,
-    BatchPayrollResponse,
 )
 from app.services.payroll_service import PayrollService
-from app.models.payroll import PayrollRecord
 from app.services.pdf_service import PDFService
 
 router = APIRouter(prefix="/payroll", tags=["Payroll Management"])

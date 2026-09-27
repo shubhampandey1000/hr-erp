@@ -1,7 +1,21 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Index, text, func
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 from app.models.enums import LeaveStatusEnum
+
 
 class LeaveType(Base):
     __tablename__ = "leave_types"

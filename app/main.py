@@ -1,9 +1,10 @@
-from fastapi import FastAPI
-from app.core.database import engine
-from sqlalchemy import text
-from app.api import employee, auth, department, leave, attendance, payroll
-from app.core.scheduler import start_scheduler, shutdown_scheduler
 from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.api import attendance, auth, department, employee, leave, payroll
+from app.core.scheduler import shutdown_scheduler, start_scheduler
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

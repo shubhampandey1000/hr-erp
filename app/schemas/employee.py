@@ -1,8 +1,10 @@
 from datetime import date, datetime
-from pydantic import BaseModel, EmailStr
-from pydantic import ConfigDict
-from app.models.enums import RoleEnum, EmploymentStatusEnum
-from app.schemas.common import DepartmentBasic, ManagerBasic    
+
+from pydantic import BaseModel, ConfigDict, EmailStr
+
+from app.models.enums import EmploymentStatusEnum, RoleEnum
+from app.schemas.common import DepartmentBasic, ManagerBasic
+
 
 class EmployeeBase(BaseModel):
     first_name: str
