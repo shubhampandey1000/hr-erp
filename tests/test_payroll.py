@@ -44,8 +44,12 @@ def test_salary_structure_creation_and_rbac(client, admin_token, employee_token,
     assert res_emp.json()["employee_id"] == test_employee.id
 
 
-def test_payroll_calculation_zero_attendance(client, admin_token, test_employee):
-    # Setup salary structure: Gross = 80,000; Deductions (PF+PT) = 6,200
+import base64
+
+from app.jobs.payroll_jobs import run_payroll_job, run_payslip_job
+
+
+def test_payroll_calculation_zero_attendance(db_session, client, admin_token, test_admin, test_employee):
     client.post(
         "/payroll/salary-structures",
         json={
@@ -59,14 +63,8 @@ def test_payroll_calculation_zero_attendance(client, admin_token, test_employee)
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
-    # Process September 2026 (30 days, 8 weekends, 0 worked weekdays -> 22 LOP days)
-    res = client.post(
-        "/payroll/process",
-        json={"year": 2026, "month": 9, "employee_id": test_employee.id},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert res.status_code == 200
-    records = res.json()["processed"]
+    result = run_payroll_job(test_admin.id, 2026, 9, test_employee.id, db=db_session)
+    records = result["processed"]
     assert len(records) == 1
     rec = records[0]
 
@@ -74,22 +72,18 @@ def test_payroll_calculation_zero_attendance(client, admin_token, test_employee)
     assert rec["weekend_days"] == 8
     assert float(rec["unpaid_leave_days"]) == 22.00
     assert float(rec["gross_salary"]) == 80000.00
-
-    # LOP = (80000 / 30) * 22 = 58666.67
     assert float(rec["lop_deduction"]) == 58666.67
-    # Total Deductions = 58666.67 + 6000 + 200 = 64866.67
     assert float(rec["total_deductions"]) == 64866.67
-    # Net Salary = 80000 - 64866.67 = 15133.33
     assert float(rec["net_salary"]) == 15133.33
     assert rec["status"] == "processed"
 
 
-def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session, test_employee, seed_leave_types, seed_organization):
-    # Setup salary structure
+def test_payroll_with_attendance_and_paid_leave(
+    db_session, client, admin_token, test_admin, test_employee, seed_leave_types, seed_organization
+):
     client.post(
         "/payroll/salary-structures",
         json={
-            "organization_id": seed_organization.id,
             "employee_id": test_employee.id,
             "base_salary": 60000.00,
             "hra": 20000.00,
@@ -100,10 +94,6 @@ def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session,
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
-    # Oct 2026 has 31 days (9 weekends, 22 working weekdays)
-    # Log 20 present days
-    # Oct 2026 has 31 days (9 weekends, 22 working weekdays)
-    # Days 1 to 28 contain exactly 20 weekdays and 8 weekend days
     for day in range(1, 29):
         d = date(2026, 10, day)
         if d.weekday() not in [5, 6]:
@@ -118,7 +108,6 @@ def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session,
             )
             db_session.add(rec)
 
-    # Add 2 days of approved paid Casual Leave on the remaining 2 weekdays (Oct 29-30)
     leave = LeaveRequest(
         organization_id=test_employee.organization_id,
         employee_id=test_employee.id,
@@ -132,23 +121,15 @@ def test_payroll_with_attendance_and_paid_leave(client, admin_token, db_session,
     db_session.add(leave)
     db_session.commit()
 
-    # Process October 2026
-    res = client.post(
-        "/payroll/process",
-        json={"year": 2026, "month": 10, "employee_id": test_employee.id},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert res.status_code == 200
-    rec = res.json()["processed"][0]
+    result = run_payroll_job(test_admin.id, 2026, 10, test_employee.id, db=db_session)
+    rec = result["processed"][0]
 
-    # Paid units = 20 present + 2 leave + 9 weekends = 31 days => LOP = 0
     assert float(rec["unpaid_leave_days"]) == 0.00
     assert float(rec["lop_deduction"]) == 0.00
     assert float(rec["net_salary"]) == 80000.00 - (7200.00 + 200.00)
 
 
-def test_payroll_state_machine_and_immutability(client, admin_token, test_employee):
-    # Setup salary structure
+def test_payroll_state_machine_and_immutability(db_session, client, admin_token, test_admin, test_employee):
     client.post(
         "/payroll/salary-structures",
         json={
@@ -162,15 +143,9 @@ def test_payroll_state_machine_and_immutability(client, admin_token, test_employ
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
-    # Process Nov 2026
-    res = client.post(
-        "/payroll/process",
-        json={"year": 2026, "month": 11, "employee_id": test_employee.id},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    record_id = res.json()["processed"][0]["id"]
+    result = run_payroll_job(test_admin.id, 2026, 11, test_employee.id, db=db_session)
+    record_id = result["processed"][0]["id"]
 
-    # 1. Invalid status transition: processed -> draft should be allowed, but skipping to random status should fail
     res_invalid = client.patch(
         f"/payroll/records/{record_id}/status",
         json={"status": "draft"},
@@ -179,14 +154,12 @@ def test_payroll_state_machine_and_immutability(client, admin_token, test_employ
     assert res_invalid.status_code == 200
     assert res_invalid.json()["status"] == "draft"
 
-    # Transition draft -> processed
     client.patch(
         f"/payroll/records/{record_id}/status",
         json={"status": "processed"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
-    # 2. Moving to paid requires payment_date
     res_no_date = client.patch(
         f"/payroll/records/{record_id}/status",
         json={"status": "paid"},
@@ -194,7 +167,6 @@ def test_payroll_state_machine_and_immutability(client, admin_token, test_employ
     )
     assert res_no_date.status_code == 400
 
-    # 3. Valid transition to paid
     res_paid = client.patch(
         f"/payroll/records/{record_id}/status",
         json={"status": "paid", "payment_date": "2026-11-30", "notes": "NEFT ref 1234"},
@@ -203,13 +175,10 @@ def test_payroll_state_machine_and_immutability(client, admin_token, test_employ
     assert res_paid.status_code == 200
     assert res_paid.json()["status"] == "paid"
 
-    # 4. Immutability guard: Modifying or regenerating a paid record must fail
-    res_recalculate = client.post(
-        "/payroll/process",
-        json={"year": 2026, "month": 11, "employee_id": test_employee.id},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert res_recalculate.status_code == 400
+    # Immutability guard: regenerating a paid record via the job should fail cleanly, not crash
+    recalculate_result = run_payroll_job(test_admin.id, 2026, 11, test_employee.id, db=db_session)
+    assert "error" in recalculate_result
+    assert "already marked as PAID" in recalculate_result["error"]
 
     res_modify_paid = client.patch(
         f"/payroll/records/{record_id}/status",
@@ -218,8 +187,7 @@ def test_payroll_state_machine_and_immutability(client, admin_token, test_employ
     )
     assert res_modify_paid.status_code == 400
 
-def test_download_payslip_pdf(client, admin_token, test_employee):
-    # 1. Setup structure and process payroll
+def test_download_payslip_pdf(db_session, client, admin_token, test_admin, test_employee):
     client.post(
         "/payroll/salary-structures",
         json={
@@ -232,23 +200,13 @@ def test_download_payslip_pdf(client, admin_token, test_employee):
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    res_proc = client.post(
-        "/payroll/process",
-        json={"year": 2026, "month": 12, "employee_id": test_employee.id},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    record_id = res_proc.json()["processed"][0]["id"]
+    payroll_result = run_payroll_job(test_admin.id, 2026, 12, test_employee.id, db=db_session)
+    record_id = payroll_result["processed"][0]["id"]
 
-    # 2. Download the PDF
-    res_pdf = client.get(
-        f"/payroll/records/{record_id}/payslip/pdf",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert res_pdf.status_code == 200
-    assert res_pdf.headers["content-type"] == "application/pdf"
-    assert "attachment; filename=" in res_pdf.headers["content-disposition"]
-    # Verify standard PDF magic header (%PDF)
-    assert res_pdf.content.startswith(b"%PDF")
+    payslip_result = run_payslip_job(record_id, test_admin.id, db=db_session)
+    assert "filename" in payslip_result
+    pdf_bytes = base64.b64decode(payslip_result["pdf_base64"])
+    assert pdf_bytes.startswith(b"%PDF")
 
 
 def test_leave_apply(client, employee_token, test_employee, seed_leave_balance):
@@ -310,3 +268,19 @@ def test_attendance_clock_in_already_exists(client, employee_token, test_employe
 
     assert res.status_code == 400
     assert "already clocked in" in res.json()["detail"] or "already completed" in res.json()["detail"]
+
+def test_process_payroll_enqueues_job(client, admin_token, test_employee):
+    client.post(
+        "/payroll/salary-structures",
+        json={"employee_id": test_employee.id, "base_salary": 50000, "hra": 10000,
+              "special_allowance": 0, "pf_deduction": 1800, "professional_tax": 200},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    res = client.post(
+        "/payroll/process",
+        json={"year": 2026, "month": 6, "employee_id": test_employee.id},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert res.status_code == 200
+    assert "job_id" in res.json()
+    assert res.json()["status"] == "queued"

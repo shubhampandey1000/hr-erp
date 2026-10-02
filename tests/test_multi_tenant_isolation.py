@@ -37,7 +37,7 @@ from app.services.department_service import DepartmentService
 from app.services.employee_service import EmployeeService
 from app.services.leave_service import LeaveService
 from app.services.payroll_service import PayrollService
-
+from app.jobs.payroll_jobs import run_payslip_job
 # ===================== LEAVE SERVICE =====================
 
 def test_apply_leave_blocks_cross_org_employee_id(db_session, test_admin, test_employee_b):
@@ -340,40 +340,34 @@ def test_update_payroll_status_blocks_cross_org_record_id(db_session, test_admin
     assert exc.value.status_code == 404
 
 
-def test_download_payslip_pdf_blocks_cross_org_record_id(client, admin_token, admin_token_b, test_employee):
-    # Set up structure and process payroll for org A via the API, as a realistic end-to-end path
-    client.post(
-        "/payroll/salary-structures",
-        json={
-            "employee_id": test_employee.id,
-            "base_salary": 50000.00,
-            "hra": 20000.00,
-            "special_allowance": 0.00,
-            "pf_deduction": 6000.00,
-            "professional_tax": 200.00,
-        },
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    res_proc = client.post(
-        "/payroll/process",
-        json={"year": 2026, "month": 9, "employee_id": test_employee.id},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    record_id = res_proc.json()["processed"][0]["id"]
+from app.jobs.payroll_jobs import run_payslip_job
 
-    # Org A admin can download it
-    res_a = client.get(
-        f"/payroll/records/{record_id}/payslip/pdf",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert res_a.status_code == 200
+
+def test_download_payslip_pdf_blocks_cross_org_record_id(db_session, test_admin, test_admin_b, test_employee):
+    # Set up structure and process payroll for org A, directly via the service — same pattern as the rest of this file
+    db_session.add(SalaryStructure(
+        organization_id=test_employee.organization_id,
+        employee_id=test_employee.id,
+        base_salary=Decimal("50000.00"),
+        hra=Decimal("20000.00"),
+        special_allowance=Decimal("0.00"),
+        pf_deduction=Decimal("6000.00"),
+        professional_tax=Decimal("200.00"),
+    ))
+    db_session.commit()
+
+    payload = ProcessMonthlyPayrollRequest(year=2026, month=9, employee_id=test_employee.id)
+    result = PayrollService.process_monthly_payroll(db_session, payload, test_admin)
+    record_id = result["processed"][0].id
+
+    # Org A admin can generate/access the payslip
+    res_a = run_payslip_job(record_id, test_admin.id, db=db_session)
+    assert "error" not in res_a
+    assert res_a["filename"].startswith("payslip_")
 
     # Org B admin cannot, even knowing the record_id
-    res_b = client.get(
-        f"/payroll/records/{record_id}/payslip/pdf",
-        headers={"Authorization": f"Bearer {admin_token_b}"},
-    )
-    assert res_b.status_code == 404
+    res_b = run_payslip_job(record_id, test_admin_b.id, db=db_session)
+    assert res_b.get("error") is not None
 
 
 # ===================== EMPLOYEE SERVICE =====================

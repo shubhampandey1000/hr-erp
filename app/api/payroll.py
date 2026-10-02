@@ -1,28 +1,30 @@
+import base64
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
+from fastapi.responses import Response
+from rq.job import Job
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_roles
+from app.core.queue import task_queue
+from app.jobs.payroll_jobs import run_payroll_job, run_payslip_job
 from app.models.employee import Employee
 from app.models.enums import RoleEnum
-from app.models.payroll import PayrollRecord
 from app.schemas.payroll import (
-    BatchPayrollResponse,
-    PayrollRecordResponse,
     ProcessMonthlyPayrollRequest,
     SalaryStructureCreate,
     SalaryStructureResponse,
     UpdatePayrollStatusRequest,
+    PayrollRecordResponse,
 )
 from app.services.payroll_service import PayrollService
-from app.services.pdf_service import PDFService
 
 router = APIRouter(prefix="/payroll", tags=["Payroll Management"])
 
 
 # ==========================================
-# Salary Structures (Admin / HR only)
+# Salary Structures (Admin / HR only) — unchanged, no background work needed
 # ==========================================
 
 @router.post("/salary-structures", response_model=SalaryStructureResponse)
@@ -40,7 +42,6 @@ def get_salary_structure(
     db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    # Admins/HR can view all within their org, employees can view only their own
     is_admin_or_hr = current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
     if not is_admin_or_hr and current_user.id != employee_id:
         raise HTTPException(status_code=403, detail="Access denied.")
@@ -48,16 +49,22 @@ def get_salary_structure(
 
 
 # ==========================================
-# Payroll Processing (Admin / HR only)
+# Payroll Processing (Admin / HR only) — now async
 # ==========================================
 
-@router.post("/process", response_model=BatchPayrollResponse)
+@router.post("/process")
 def process_payroll(
     payload: ProcessMonthlyPayrollRequest,
-    db: Session = Depends(get_db),
     current_user: Employee = Depends(require_roles(RoleEnum.admin, RoleEnum.hr)),
 ):
-    return PayrollService.process_monthly_payroll(db, payload, current_user)
+    job = task_queue.enqueue(
+        run_payroll_job,
+        current_user.id,
+        payload.year,
+        payload.month,
+        payload.employee_id,
+    )
+    return {"job_id": job.id, "status": "queued"}
 
 
 # ==========================================
@@ -95,33 +102,51 @@ def update_payroll_status(
     return PayrollService.update_status(db, record_id, payload, current_user)
 
 
-@router.get("/records/{record_id}/payslip/pdf")
-def download_payslip_pdf(
+@router.post("/records/{record_id}/payslip/generate")
+def generate_payslip(
     record_id: int,
-    db: Session = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    record = (
-        db.query(PayrollRecord)
-        .options(joinedload(PayrollRecord.employee))
-        .filter(
-            PayrollRecord.id == record_id,
-            PayrollRecord.organization_id == current_user.organization_id,
-        )
-        .first()
-    )
-    if not record:
-        raise HTTPException(status_code=404, detail="Payroll record not found.")
+    job = task_queue.enqueue(run_payslip_job, record_id, current_user.id)
+    return {"job_id": job.id, "status": "queued"}
 
-    is_admin_or_hr = current_user.role in [RoleEnum.admin.value, RoleEnum.admin, RoleEnum.hr.value, RoleEnum.hr]
-    if not is_admin_or_hr and record.employee_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied.")
 
-    pdf_buffer = PDFService.generate_payslip_pdf(record)
-    filename = f"payslip_{record.employee.employee_code}_{record.year}_{record.month:02d}.pdf"
+# ==========================================
+# Job status + result retrieval — shared by both job types
+# ==========================================
 
-    return StreamingResponse(
-        pdf_buffer,
+@router.get("/jobs/{job_id}")
+def get_job_status(job_id: str):
+    try:
+        job = Job.fetch(job_id, connection=task_queue.connection)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    response = {"job_id": job.id, "status": job.get_status()}
+    if job.is_finished:
+        response["result"] = job.result
+    elif job.is_failed:
+        response["error"] = str(job.exc_info)
+    return response
+
+
+@router.get("/jobs/{job_id}/payslip-download")
+def download_payslip_result(job_id: str):
+    try:
+        job = Job.fetch(job_id, connection=task_queue.connection)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    if not job.is_finished:
+        raise HTTPException(status_code=400, detail=f"Job is not finished yet (status: {job.get_status()}).")
+
+    result = job.result
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    pdf_bytes = base64.b64decode(result["pdf_base64"])
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"'},
     )
