@@ -1,6 +1,8 @@
+import base64
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from app.jobs.payroll_jobs import run_payroll_job, run_payslip_job
 from app.models.attendance import Attendance
 from app.models.enums import AttendanceStatusEnum, LeaveStatusEnum
 from app.models.leave import LeaveRequest
@@ -42,11 +44,6 @@ def test_salary_structure_creation_and_rbac(client, admin_token, employee_token,
     )
     assert res_emp.status_code == 200
     assert res_emp.json()["employee_id"] == test_employee.id
-
-
-import base64
-
-from app.jobs.payroll_jobs import run_payroll_job, run_payslip_job
 
 
 def test_payroll_calculation_zero_attendance(db_session, client, admin_token, test_admin, test_employee):

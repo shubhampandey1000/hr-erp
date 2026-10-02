@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.security import hash_password
+from app.jobs.payroll_jobs import run_payslip_job
 from app.models.attendance import Attendance, CompOffRequest
 from app.models.department import Department
 from app.models.employee import Employee
@@ -37,7 +38,7 @@ from app.services.department_service import DepartmentService
 from app.services.employee_service import EmployeeService
 from app.services.leave_service import LeaveService
 from app.services.payroll_service import PayrollService
-from app.jobs.payroll_jobs import run_payslip_job
+
 # ===================== LEAVE SERVICE =====================
 
 def test_apply_leave_blocks_cross_org_employee_id(db_session, test_admin, test_employee_b):
@@ -340,7 +341,6 @@ def test_update_payroll_status_blocks_cross_org_record_id(db_session, test_admin
     assert exc.value.status_code == 404
 
 
-from app.jobs.payroll_jobs import run_payslip_job
 
 
 def test_download_payslip_pdf_blocks_cross_org_record_id(db_session, test_admin, test_admin_b, test_employee):

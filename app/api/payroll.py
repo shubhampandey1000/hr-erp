@@ -12,11 +12,11 @@ from app.jobs.payroll_jobs import run_payroll_job, run_payslip_job
 from app.models.employee import Employee
 from app.models.enums import RoleEnum
 from app.schemas.payroll import (
+    PayrollRecordResponse,
     ProcessMonthlyPayrollRequest,
     SalaryStructureCreate,
     SalaryStructureResponse,
     UpdatePayrollStatusRequest,
-    PayrollRecordResponse,
 )
 from app.services.payroll_service import PayrollService
 
@@ -119,8 +119,8 @@ def generate_payslip(
 def get_job_status(job_id: str):
     try:
         job = Job.fetch(job_id, connection=task_queue.connection)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Job not found.") from e
 
     response = {"job_id": job.id, "status": job.get_status()}
     if job.is_finished:
@@ -134,8 +134,8 @@ def get_job_status(job_id: str):
 def download_payslip_result(job_id: str):
     try:
         job = Job.fetch(job_id, connection=task_queue.connection)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Job not found.") from e
 
     if not job.is_finished:
         raise HTTPException(status_code=400, detail=f"Job is not finished yet (status: {job.get_status()}).")
